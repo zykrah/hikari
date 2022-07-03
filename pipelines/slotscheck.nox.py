@@ -1,4 +1,4 @@
-#!/bin/sh -e
+# -*- coding: utf-8 -*-
 # Copyright (c) 2020 Nekokatt
 # Copyright (c) 2021-present davfsa
 #
@@ -19,25 +19,14 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+"""Check for common slotting mistakes."""
 
-# Script to set the PYTHONPATH variable up to point to the root of this repository.
+from pipelines import config
+from pipelines import nox
 
-if [ -z "${1}" ]; then
-    echo "Please pass a bot token as the first parameter to this script!"
-    exit 1
-fi
 
-SCRIPT=$(readlink -f "${0}")
-SCRIPT_PATH=$(dirname "${SCRIPT}")
-
-# PYTHONPATH might not be set
-if [ $PYTHONPATH ]; then
-    PYTHONPATH="${PYTHONPATH}:${SCRIPT_PATH}/../.."
-else
-    PYTHONPATH="${SCRIPT_PATH}/../.."
-fi
-
-export PYTHONPATH
-export BOT_TOKEN="${1}"
-
-python3 "${SCRIPT_PATH}/$(basename "${SCRIPT_PATH}").py"
+@nox.session()
+def slotscheck(session: nox.Session) -> None:
+    """Check for common slotting mistakes."""
+    session.install(".", "-r", "dev-requirements.txt")
+    session.run("slotscheck", "-m", config.MAIN_PACKAGE)

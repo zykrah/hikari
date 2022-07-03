@@ -23,12 +23,16 @@
 import mock
 import pytest
 
+from hikari import commands
 from hikari import emojis
+from hikari import files
 from hikari import messages
+from hikari import permissions
 from hikari import snowflakes
 from hikari import undefined
 from hikari.impl import special_endpoints
 from hikari.interactions import base_interactions
+from hikari.internal import routes
 from tests.hikari import hikari_test_helpers
 
 
@@ -49,6 +53,386 @@ class TestTypingIndicator:
             pytest.fail(exc)
 
 
+class TestOwnGuildIterator:
+    @pytest.mark.asyncio()
+    async def test_aiter(self):
+        mock_payload_1 = {"id": "123321123123"}
+        mock_payload_2 = {"id": "123321123666"}
+        mock_payload_3 = {"id": "123321124123"}
+        mock_payload_4 = {"id": "123321124567"}
+        mock_payload_5 = {"id": "12332112432234"}
+        mock_result_1 = mock.Mock()
+        mock_result_2 = mock.Mock()
+        mock_result_3 = mock.Mock()
+        mock_result_4 = mock.Mock()
+        mock_result_5 = mock.Mock()
+        expected_route = routes.GET_MY_GUILDS.compile()
+        mock_entity_factory = mock.Mock()
+        mock_entity_factory.deserialize_own_guild.side_effect = [
+            mock_result_1,
+            mock_result_2,
+            mock_result_3,
+            mock_result_4,
+            mock_result_5,
+        ]
+        mock_request = mock.AsyncMock(
+            side_effect=[[mock_payload_1, mock_payload_2, mock_payload_3], [mock_payload_4, mock_payload_5], []]
+        )
+        iterator = special_endpoints.OwnGuildIterator(mock_entity_factory, mock_request, False, first_id="123321")
+
+        result = await iterator
+
+        assert result == [mock_result_1, mock_result_2, mock_result_3, mock_result_4, mock_result_5]
+        mock_entity_factory.deserialize_own_guild.assert_has_calls(
+            [
+                mock.call(mock_payload_1),
+                mock.call(mock_payload_2),
+                mock.call(mock_payload_3),
+                mock.call(mock_payload_4),
+                mock.call(mock_payload_5),
+            ]
+        )
+        mock_request.assert_has_awaits(
+            [
+                mock.call(compiled_route=expected_route, query={"after": "123321"}),
+                mock.call(compiled_route=expected_route, query={"after": "123321124123"}),
+                mock.call(compiled_route=expected_route, query={"after": "12332112432234"}),
+            ]
+        )
+
+    @pytest.mark.asyncio()
+    async def test_aiter_when_newest_first(self):
+        mock_payload_1 = {"id": "1213321123123"}
+        mock_payload_2 = {"id": "1213321123666"}
+        mock_payload_3 = {"id": "1213321124123"}
+        mock_payload_4 = {"id": "1213321124567"}
+        mock_payload_5 = {"id": "121332112432234"}
+        mock_result_1 = mock.Mock()
+        mock_result_2 = mock.Mock()
+        mock_result_3 = mock.Mock()
+        mock_result_4 = mock.Mock()
+        mock_result_5 = mock.Mock()
+        expected_route = routes.GET_MY_GUILDS.compile()
+        mock_entity_factory = mock.Mock()
+        mock_entity_factory.deserialize_own_guild.side_effect = [
+            mock_result_1,
+            mock_result_2,
+            mock_result_3,
+            mock_result_4,
+            mock_result_5,
+        ]
+        mock_request = mock.AsyncMock(
+            side_effect=[[mock_payload_3, mock_payload_4, mock_payload_5], [mock_payload_1, mock_payload_2], []]
+        )
+        iterator = special_endpoints.OwnGuildIterator(
+            mock_entity_factory, mock_request, True, first_id="55555555555555555"
+        )
+
+        result = await iterator
+
+        assert result == [mock_result_1, mock_result_2, mock_result_3, mock_result_4, mock_result_5]
+        mock_entity_factory.deserialize_own_guild.assert_has_calls(
+            [
+                mock.call(mock_payload_5),
+                mock.call(mock_payload_4),
+                mock.call(mock_payload_3),
+                mock.call(mock_payload_2),
+                mock.call(mock_payload_1),
+            ]
+        )
+        mock_request.assert_has_awaits(
+            [
+                mock.call(compiled_route=expected_route, query={"before": "55555555555555555"}),
+                mock.call(compiled_route=expected_route, query={"before": "1213321124123"}),
+                mock.call(compiled_route=expected_route, query={"before": "1213321123123"}),
+            ]
+        )
+
+    @pytest.mark.parametrize("newest_first", [True, False])
+    @pytest.mark.asyncio()
+    async def test_aiter_when_empty_chunk(self, newest_first: bool):
+        expected_route = routes.GET_MY_GUILDS.compile()
+        mock_entity_factory = mock.Mock()
+        mock_request = mock.AsyncMock(return_value=[])
+        iterator = special_endpoints.OwnGuildIterator(
+            mock_entity_factory, mock_request, newest_first, first_id="123321"
+        )
+
+        result = await iterator
+
+        assert result == []
+        mock_entity_factory.deserialize_own_guild.assert_not_called()
+        query = {"before" if newest_first else "after": "123321"}
+        mock_request.assert_awaited_once_with(compiled_route=expected_route, query=query)
+
+
+class TestGuildBanIterator:
+    @pytest.mark.asyncio()
+    async def test_aiter(self):
+        expected_route = routes.GET_GUILD_BANS.compile(guild=10000)
+        mock_entity_factory = mock.Mock()
+        mock_payload_1 = {"user": {"id": "45234"}}
+        mock_payload_2 = {"user": {"id": "452745"}}
+        mock_payload_3 = {"user": {"id": "45237656"}}
+        mock_payload_4 = {"user": {"id": "452345666"}}
+        mock_payload_5 = {"user": {"id": "4523456744"}}
+        mock_result_1 = mock.Mock()
+        mock_result_2 = mock.Mock()
+        mock_result_3 = mock.Mock()
+        mock_result_4 = mock.Mock()
+        mock_result_5 = mock.Mock()
+        mock_entity_factory.deserialize_guild_member_ban.side_effect = [
+            mock_result_1,
+            mock_result_2,
+            mock_result_3,
+            mock_result_4,
+            mock_result_5,
+        ]
+        mock_request = mock.AsyncMock(
+            side_effect=[[mock_payload_1, mock_payload_2, mock_payload_3], [mock_payload_4, mock_payload_5], []]
+        )
+        iterator = special_endpoints.GuildBanIterator(
+            entity_factory=mock_entity_factory,
+            request_call=mock_request,
+            guild=10000,
+            newest_first=False,
+            first_id="0",
+        )
+
+        result = await iterator
+
+        assert result == [mock_result_1, mock_result_2, mock_result_3, mock_result_4, mock_result_5]
+        mock_entity_factory.deserialize_guild_member_ban.assert_has_calls(
+            [
+                mock.call(mock_payload_1),
+                mock.call(mock_payload_2),
+                mock.call(mock_payload_3),
+                mock.call(mock_payload_4),
+                mock.call(mock_payload_5),
+            ]
+        )
+        mock_request.assert_has_awaits(
+            [
+                mock.call(compiled_route=expected_route, query={"after": "0", "limit": "1000"}),
+                mock.call(compiled_route=expected_route, query={"after": "45237656", "limit": "1000"}),
+                mock.call(compiled_route=expected_route, query={"after": "4523456744", "limit": "1000"}),
+            ]
+        )
+
+    @pytest.mark.asyncio()
+    async def test_aiter_when_newest_first(self):
+        expected_route = routes.GET_GUILD_BANS.compile(guild=10000)
+        mock_entity_factory = mock.Mock()
+        mock_payload_1 = {"user": {"id": "432234"}}
+        mock_payload_2 = {"user": {"id": "1233211"}}
+        mock_payload_3 = {"user": {"id": "12332112"}}
+        mock_payload_4 = {"user": {"id": "1233"}}
+        mock_payload_5 = {"user": {"id": "54334"}}
+        mock_result_1 = mock.Mock()
+        mock_result_2 = mock.Mock()
+        mock_result_3 = mock.Mock()
+        mock_result_4 = mock.Mock()
+        mock_result_5 = mock.Mock()
+        mock_entity_factory.deserialize_guild_member_ban.side_effect = [
+            mock_result_1,
+            mock_result_2,
+            mock_result_3,
+            mock_result_4,
+            mock_result_5,
+        ]
+        mock_request = mock.AsyncMock(
+            side_effect=[[mock_payload_1, mock_payload_2, mock_payload_3], [mock_payload_4, mock_payload_5], []]
+        )
+        iterator = special_endpoints.GuildBanIterator(
+            entity_factory=mock_entity_factory,
+            request_call=mock_request,
+            guild=10000,
+            newest_first=True,
+            first_id="321123321",
+        )
+
+        result = await iterator
+
+        assert result == [mock_result_1, mock_result_2, mock_result_3, mock_result_4, mock_result_5]
+        mock_entity_factory.deserialize_guild_member_ban.assert_has_calls(
+            [
+                mock.call(mock_payload_3),
+                mock.call(mock_payload_2),
+                mock.call(mock_payload_1),
+                mock.call(mock_payload_5),
+                mock.call(mock_payload_4),
+            ]
+        )
+        mock_request.assert_has_awaits(
+            [
+                mock.call(compiled_route=expected_route, query={"before": "321123321", "limit": "1000"}),
+                mock.call(compiled_route=expected_route, query={"before": "432234", "limit": "1000"}),
+                mock.call(compiled_route=expected_route, query={"before": "1233", "limit": "1000"}),
+            ]
+        )
+
+    @pytest.mark.parametrize("newest_first", [True, False])
+    @pytest.mark.asyncio()
+    async def test_aiter_when_empty_chunk(self, newest_first: bool):
+        expected_route = routes.GET_GUILD_BANS.compile(guild=10000)
+        mock_entity_factory = mock.Mock()
+        mock_request = mock.AsyncMock(return_value=[])
+        iterator = special_endpoints.GuildBanIterator(
+            entity_factory=mock_entity_factory,
+            request_call=mock_request,
+            guild=10000,
+            newest_first=newest_first,
+            first_id="54234123123",
+        )
+
+        result = await iterator
+
+        assert result == []
+        mock_entity_factory.deserialize_guild_member_ban.assert_not_called()
+        query = {"before" if newest_first else "after": "54234123123", "limit": "1000"}
+        mock_request.assert_awaited_once_with(compiled_route=expected_route, query=query)
+
+
+class TestScheduledEventUserIterator:
+    @pytest.mark.asyncio()
+    async def test_aiter(self):
+        expected_route = routes.GET_GUILD_SCHEDULED_EVENT_USERS.compile(guild=54123, scheduled_event=564123)
+        mock_entity_factory = mock.Mock()
+        mock_payload_1 = {"user": {"id": "45234"}}
+        mock_payload_2 = {"user": {"id": "452745"}}
+        mock_payload_3 = {"user": {"id": "45237656"}}
+        mock_payload_4 = {"user": {"id": "452345666"}}
+        mock_payload_5 = {"user": {"id": "4523456744"}}
+        mock_result_1 = mock.Mock()
+        mock_result_2 = mock.Mock()
+        mock_result_3 = mock.Mock()
+        mock_result_4 = mock.Mock()
+        mock_result_5 = mock.Mock()
+        mock_entity_factory.deserialize_scheduled_event_user.side_effect = [
+            mock_result_1,
+            mock_result_2,
+            mock_result_3,
+            mock_result_4,
+            mock_result_5,
+        ]
+        mock_request = mock.AsyncMock(
+            side_effect=[[mock_payload_1, mock_payload_2, mock_payload_3], [mock_payload_4, mock_payload_5], []]
+        )
+        iterator = special_endpoints.ScheduledEventUserIterator(
+            entity_factory=mock_entity_factory,
+            request_call=mock_request,
+            newest_first=False,
+            first_id="0",
+            guild=54123,
+            event=564123,
+        )
+
+        result = await iterator
+
+        assert result == [mock_result_1, mock_result_2, mock_result_3, mock_result_4, mock_result_5]
+        mock_entity_factory.deserialize_scheduled_event_user.assert_has_calls(
+            [
+                mock.call(mock_payload_1, guild_id=54123),
+                mock.call(mock_payload_2, guild_id=54123),
+                mock.call(mock_payload_3, guild_id=54123),
+                mock.call(mock_payload_4, guild_id=54123),
+                mock.call(mock_payload_5, guild_id=54123),
+            ]
+        )
+        mock_request.assert_has_awaits(
+            [
+                mock.call(compiled_route=expected_route, query={"limit": "100", "with_member": "true", "after": "0"}),
+                mock.call(
+                    compiled_route=expected_route, query={"limit": "100", "with_member": "true", "after": "45237656"}
+                ),
+                mock.call(
+                    compiled_route=expected_route, query={"limit": "100", "with_member": "true", "after": "4523456744"}
+                ),
+            ]
+        )
+
+    @pytest.mark.asyncio()
+    async def test_aiter_when_newest_first(self):
+        expected_route = routes.GET_GUILD_SCHEDULED_EVENT_USERS.compile(guild=54123, scheduled_event=564123)
+        mock_entity_factory = mock.Mock()
+        mock_payload_1 = {"user": {"id": "432234"}}
+        mock_payload_2 = {"user": {"id": "1233211"}}
+        mock_payload_3 = {"user": {"id": "12332112"}}
+        mock_payload_4 = {"user": {"id": "1233"}}
+        mock_payload_5 = {"user": {"id": "54334"}}
+        mock_result_1 = mock.Mock()
+        mock_result_2 = mock.Mock()
+        mock_result_3 = mock.Mock()
+        mock_result_4 = mock.Mock()
+        mock_result_5 = mock.Mock()
+        mock_entity_factory.deserialize_scheduled_event_user.side_effect = [
+            mock_result_1,
+            mock_result_2,
+            mock_result_3,
+            mock_result_4,
+            mock_result_5,
+        ]
+        mock_request = mock.AsyncMock(
+            side_effect=[[mock_payload_1, mock_payload_2, mock_payload_3], [mock_payload_4, mock_payload_5], []]
+        )
+        iterator = special_endpoints.ScheduledEventUserIterator(
+            entity_factory=mock_entity_factory,
+            request_call=mock_request,
+            newest_first=True,
+            first_id="321123321",
+            guild=54123,
+            event=564123,
+        )
+
+        result = await iterator
+
+        assert result == [mock_result_1, mock_result_2, mock_result_3, mock_result_4, mock_result_5]
+        mock_entity_factory.deserialize_scheduled_event_user.assert_has_calls(
+            [
+                mock.call(mock_payload_3, guild_id=54123),
+                mock.call(mock_payload_2, guild_id=54123),
+                mock.call(mock_payload_1, guild_id=54123),
+                mock.call(mock_payload_5, guild_id=54123),
+                mock.call(mock_payload_4, guild_id=54123),
+            ]
+        )
+        mock_request.assert_has_awaits(
+            [
+                mock.call(
+                    compiled_route=expected_route, query={"limit": "100", "with_member": "true", "before": "321123321"}
+                ),
+                mock.call(
+                    compiled_route=expected_route, query={"limit": "100", "with_member": "true", "before": "432234"}
+                ),
+                mock.call(
+                    compiled_route=expected_route, query={"limit": "100", "with_member": "true", "before": "1233"}
+                ),
+            ]
+        )
+
+    @pytest.mark.parametrize("newest_first", [True, False])
+    @pytest.mark.asyncio()
+    async def test_aiter_when_empty_chunk(self, newest_first: bool):
+        expected_route = routes.GET_GUILD_SCHEDULED_EVENT_USERS.compile(guild=543123, scheduled_event=541234)
+        mock_entity_factory = mock.Mock()
+        mock_request = mock.AsyncMock(return_value=[])
+        iterator = special_endpoints.ScheduledEventUserIterator(
+            entity_factory=mock_entity_factory,
+            request_call=mock_request,
+            first_id="54234123123",
+            newest_first=newest_first,
+            guild=543123,
+            event=541234,
+        )
+
+        result = await iterator
+
+        assert result == []
+        mock_entity_factory.deserialize_scheduled_event_user.assert_not_called()
+        query = {"limit": "100", "with_member": "true", "before" if newest_first else "after": "54234123123"}
+        mock_request.assert_awaited_once_with(compiled_route=expected_route, query=query)
+
+
 class TestInteractionDeferredBuilder:
     def test_type_property(self):
         builder = special_endpoints.InteractionDeferredBuilder(5)
@@ -63,17 +447,23 @@ class TestInteractionDeferredBuilder:
     def test_build(self):
         builder = special_endpoints.InteractionDeferredBuilder(base_interactions.ResponseType.DEFERRED_MESSAGE_CREATE)
 
-        assert builder.build(object()) == {"type": base_interactions.ResponseType.DEFERRED_MESSAGE_CREATE}
+        result, attachments = builder.build(object())
+
+        assert result == {"type": base_interactions.ResponseType.DEFERRED_MESSAGE_CREATE}
+        assert attachments == ()
 
     def test_build_with_flags(self):
         builder = special_endpoints.InteractionDeferredBuilder(
             base_interactions.ResponseType.DEFERRED_MESSAGE_CREATE
         ).set_flags(64)
 
-        assert builder.build(object()) == {
+        result, attachments = builder.build(object())
+
+        assert result == {
             "type": base_interactions.ResponseType.DEFERRED_MESSAGE_CREATE,
             "data": {"flags": 64},
         }
+        assert attachments == ()
 
 
 class TestInteractionMessageBuilder:
@@ -93,25 +483,38 @@ class TestInteractionMessageBuilder:
 
         assert builder.content == "meow nya"
 
-    def test_components_property(self):
-        mock_component = object()
+    def test_attachments_property(self):
+        mock_attachment = mock.Mock()
+        builder = special_endpoints.InteractionMessageBuilder(4).add_attachment(mock_attachment)
+
+        assert builder.attachments == [mock_attachment]
+
+    def test_attachments_property_when_undefined(self):
         builder = special_endpoints.InteractionMessageBuilder(4)
 
-        assert builder.components == []
+        assert builder.attachments is undefined.UNDEFINED
 
-        builder.add_component(mock_component)
+    def test_components_property(self):
+        mock_component = object()
+        builder = special_endpoints.InteractionMessageBuilder(4).add_component(mock_component)
 
         assert builder.components == [mock_component]
 
-    def test_embeds_property(self):
-        mock_embed = object()
+    def test_components_property_when_undefined(self):
         builder = special_endpoints.InteractionMessageBuilder(4)
 
-        assert builder.embeds == []
+        assert builder.components is undefined.UNDEFINED
 
-        builder.add_embed(mock_embed)
+    def test_embeds_property(self):
+        mock_embed = object()
+        builder = special_endpoints.InteractionMessageBuilder(4).add_embed(mock_embed)
 
         assert builder.embeds == [mock_embed]
+
+    def test_embeds_property_when_undefined(self):
+        builder = special_endpoints.InteractionMessageBuilder(4)
+
+        assert builder.embeds is undefined.UNDEFINED
 
     def test_flags_property(self):
         builder = special_endpoints.InteractionMessageBuilder(4).set_flags(95995)
@@ -156,7 +559,7 @@ class TestInteractionMessageBuilder:
             .set_role_mentions([54234])
         )
 
-        result = builder.build(mock_entity_factory)
+        result, attachments = builder.build(mock_entity_factory)
 
         mock_entity_factory.serialize_embed.assert_called_once_with(mock_embed)
         mock_component.build.assert_called_once_with()
@@ -171,33 +574,77 @@ class TestInteractionMessageBuilder:
                 "allowed_mentions": {"parse": [], "users": ["123"], "roles": ["54234"]},
             },
         }
+        assert attachments == []
 
-    def test_build_handles_attachments(self):
+    def test_build_for_partial_when_message_create(self):
         mock_entity_factory = mock.Mock()
-        mock_entity_factory.serialize_embed.return_value = (object(), [object()])
-        builder = special_endpoints.InteractionMessageBuilder(base_interactions.ResponseType.MESSAGE_CREATE).add_embed(
-            object()
+        builder = special_endpoints.InteractionMessageBuilder(base_interactions.ResponseType.MESSAGE_CREATE)
+
+        result, attachments = builder.build(mock_entity_factory)
+
+        mock_entity_factory.serialize_embed.assert_not_called()
+        assert result == {
+            "type": base_interactions.ResponseType.MESSAGE_CREATE,
+            "data": {"allowed_mentions": {"parse": []}},
+        }
+        assert attachments == []
+
+    def test_build_for_partial_when_message_update(self):
+        mock_entity_factory = mock.Mock()
+        builder = special_endpoints.InteractionMessageBuilder(base_interactions.ResponseType.MESSAGE_UPDATE)
+
+        result, attachments = builder.build(mock_entity_factory)
+
+        mock_entity_factory.serialize_embed.assert_not_called()
+        assert result == {"type": base_interactions.ResponseType.MESSAGE_UPDATE, "data": {}}
+        assert attachments == []
+
+    def test_build_for_partial_when_empty_lists(self):
+        mock_entity_factory = mock.Mock()
+        builder = special_endpoints.InteractionMessageBuilder(
+            base_interactions.ResponseType.MESSAGE_UPDATE, attachments=[], components=[], embeds=[]
         )
 
-        with pytest.raises(
-            ValueError, match="Cannot send an embed with attachments in a slash command's initial response"
-        ):
-            builder.build(mock_entity_factory)
+        result, attachments = builder.build(mock_entity_factory)
+
+        mock_entity_factory.serialize_embed.assert_not_called()
+        assert result == {
+            "type": base_interactions.ResponseType.MESSAGE_UPDATE,
+            "data": {
+                "components": [],
+                "embeds": [],
+            },
+        }
+        assert attachments == []
+
+    def test_build_handles_attachments(self):
+        mock_attachment = mock.Mock()
+        mock_other_attachment = mock.Mock()
+        mock_entity_factory = mock.Mock()
+        mock_entity_factory.serialize_embed.return_value = (object(), [mock_other_attachment])
+        builder = (
+            special_endpoints.InteractionMessageBuilder(base_interactions.ResponseType.MESSAGE_CREATE)
+            .add_attachment(mock_attachment)
+            .add_embed(object())
+        )
+
+        _, attachments = builder.build(mock_entity_factory)
+        assert attachments == [files.ensure_resource(mock_attachment), mock_other_attachment]
 
 
-class TestCommandBuilder:
+class TestSlashCommandBuilder:
     def test_description_property(self):
-        builder = special_endpoints.CommandBuilder("ok", "NO")
+        builder = special_endpoints.SlashCommandBuilder("ok", "NO")
 
         assert builder.description == "NO"
 
     def test_name_property(self):
-        builder = special_endpoints.CommandBuilder("NOOOOO", "OKKKK")
+        builder = special_endpoints.SlashCommandBuilder("NOOOOO", "OKKKK")
 
         assert builder.name == "NOOOOO"
 
     def test_options_property(self):
-        builder = special_endpoints.CommandBuilder("OKSKDKSDK", "inmjfdsmjiooikjsa")
+        builder = special_endpoints.SlashCommandBuilder("OKSKDKSDK", "inmjfdsmjiooikjsa")
         mock_option = object()
 
         assert builder.options == []
@@ -207,23 +654,31 @@ class TestCommandBuilder:
         assert builder.options == [mock_option]
 
     def test_id_property(self):
-        builder = special_endpoints.CommandBuilder("OKSKDKSDK", "inmjfdsmjiooikjsa").set_id(3212123)
+        builder = special_endpoints.SlashCommandBuilder("OKSKDKSDK", "inmjfdsmjiooikjsa").set_id(3212123)
 
         assert builder.id == 3212123
 
-    def test_default_permission(self):
-        builder = special_endpoints.CommandBuilder("oksksksk", "kfdkodfokfd").set_default_permission(True)
+    def test_default_member_permissions(self):
+        builder = special_endpoints.SlashCommandBuilder("oksksksk", "kfdkodfokfd").set_default_member_permissions(
+            permissions.Permissions.ADMINISTRATOR
+        )
 
-        assert builder.default_permission is True
+        assert builder.default_member_permissions == permissions.Permissions.ADMINISTRATOR
+
+    def test_is_dm_enabled(self):
+        builder = special_endpoints.SlashCommandBuilder("oksksksk", "kfdkodfokfd").set_is_dm_enabled(True)
+
+        assert builder.is_dm_enabled is True
 
     def test_build_with_optional_data(self):
         mock_entity_factory = mock.Mock()
         mock_option = object()
         builder = (
-            special_endpoints.CommandBuilder("we are number", "one")
+            special_endpoints.SlashCommandBuilder("we are number", "one")
             .add_option(mock_option)
             .set_id(3412312)
-            .set_default_permission(False)
+            .set_default_member_permissions(permissions.Permissions.ADMINISTRATOR)
+            .set_is_dm_enabled(True)
         )
 
         result = builder.build(mock_entity_factory)
@@ -232,17 +687,133 @@ class TestCommandBuilder:
         assert result == {
             "name": "we are number",
             "description": "one",
-            "default_permission": False,
+            "type": 1,
+            "dm_permission": True,
+            "default_member_permissions": 8,
             "options": [mock_entity_factory.serialize_command_option.return_value],
             "id": "3412312",
         }
 
     def test_build_without_optional_data(self):
-        builder = special_endpoints.CommandBuilder("we are numberr", "oner")
+        builder = special_endpoints.SlashCommandBuilder("we are numberr", "oner")
 
         result = builder.build(mock.Mock())
 
-        assert result == {"name": "we are numberr", "description": "oner", "options": []}
+        assert result == {"type": 1, "name": "we are numberr", "description": "oner", "options": []}
+
+    @pytest.mark.asyncio()
+    async def test_create(self):
+        builder = (
+            special_endpoints.SlashCommandBuilder("we are number", "one")
+            .add_option(mock.Mock())
+            .set_default_member_permissions(permissions.Permissions.BAN_MEMBERS)
+            .set_is_dm_enabled(True)
+        )
+        mock_rest = mock.AsyncMock()
+
+        result = await builder.create(mock_rest, 123431123)
+
+        assert result is mock_rest.create_slash_command.return_value
+        mock_rest.create_slash_command.assert_awaited_once_with(
+            123431123,
+            builder.name,
+            builder.description,
+            guild=undefined.UNDEFINED,
+            options=builder.options,
+            default_member_permissions=permissions.Permissions.BAN_MEMBERS,
+            dm_enabled=True,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_create_with_guild(self):
+        builder = (
+            special_endpoints.SlashCommandBuilder("we are number", "one")
+            .set_default_member_permissions(permissions.Permissions.BAN_MEMBERS)
+            .set_is_dm_enabled(True)
+        )
+        mock_rest = mock.AsyncMock()
+
+        result = await builder.create(mock_rest, 54455445, guild=54123123321)
+
+        assert result is mock_rest.create_slash_command.return_value
+        mock_rest.create_slash_command.assert_awaited_once_with(
+            54455445,
+            builder.name,
+            builder.description,
+            guild=54123123321,
+            options=builder.options,
+            default_member_permissions=permissions.Permissions.BAN_MEMBERS,
+            dm_enabled=True,
+        )
+
+
+class TestContextMenuBuilder:
+    def test_build_with_optional_data(self):
+        builder = (
+            special_endpoints.ContextMenuCommandBuilder(commands.CommandType.USER, "we are number")
+            .set_id(3412312)
+            .set_default_member_permissions(permissions.Permissions.ADMINISTRATOR)
+            .set_is_dm_enabled(True)
+        )
+
+        result = builder.build(mock.Mock())
+
+        assert result == {
+            "name": "we are number",
+            "type": 2,
+            "dm_permission": True,
+            "default_member_permissions": 8,
+            "id": "3412312",
+        }
+
+    def test_build_without_optional_data(self):
+        builder = special_endpoints.ContextMenuCommandBuilder(commands.CommandType.MESSAGE, "nameeeee")
+
+        result = builder.build(mock.Mock())
+
+        assert result == {"type": 3, "name": "nameeeee"}
+
+    @pytest.mark.asyncio()
+    async def test_create(self):
+        builder = (
+            special_endpoints.ContextMenuCommandBuilder(commands.CommandType.USER, "we are number")
+            .set_default_member_permissions(permissions.Permissions.BAN_MEMBERS)
+            .set_is_dm_enabled(True)
+        )
+        mock_rest = mock.AsyncMock()
+
+        result = await builder.create(mock_rest, 123321)
+
+        assert result is mock_rest.create_context_menu_command.return_value
+        mock_rest.create_context_menu_command.assert_awaited_once_with(
+            123321,
+            builder.type,
+            builder.name,
+            guild=undefined.UNDEFINED,
+            default_member_permissions=permissions.Permissions.BAN_MEMBERS,
+            dm_enabled=True,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_create_with_guild(self):
+        builder = (
+            special_endpoints.ContextMenuCommandBuilder(commands.CommandType.USER, "we are number")
+            .set_default_member_permissions(permissions.Permissions.BAN_MEMBERS)
+            .set_is_dm_enabled(True)
+        )
+        mock_rest = mock.AsyncMock()
+
+        result = await builder.create(mock_rest, 4444444, guild=765234123)
+
+        assert result is mock_rest.create_context_menu_command.return_value
+        mock_rest.create_context_menu_command.assert_awaited_once_with(
+            4444444,
+            builder.type,
+            builder.name,
+            guild=765234123,
+            default_member_permissions=permissions.Permissions.BAN_MEMBERS,
+            dm_enabled=True,
+        )
 
 
 @pytest.mark.parametrize("emoji", ["UNICORN", emojis.UnicodeEmoji("UNICORN")])

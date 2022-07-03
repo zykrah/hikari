@@ -41,7 +41,6 @@ COVERAGE_FLAGS = [
     f"html:{config.COVERAGE_HTML_PATH}",
     "--cov-report",
     "xml",
-    "--cov-branch",
 ]
 
 
@@ -56,12 +55,21 @@ def pytest(session: nox.Session) -> None:
 
 
 @nox.session(reuse_venv=True)
-def pytest_speedups(session: nox.Session) -> None:
+def pytest_all_features(session: nox.Session) -> None:
     """Run unit tests and measure code coverage, using speedup modules.
 
     Coverage can be disabled with the `--skip-coverage` flag.
     """
-    session.install("-r", "requirements.txt", "-r", "speedup-requirements.txt", "-r", "dev-requirements.txt")
+    session.install(
+        "-r",
+        "requirements.txt",
+        "-r",
+        "server-requirements.txt",
+        "-r",
+        "speedup-requirements.txt",
+        "-r",
+        "dev-requirements.txt",
+    )
     _pytest(session, "-OO")
 
 
@@ -70,12 +78,6 @@ def _pytest(session: nox.Session, *py_flags: str) -> None:
         session.posargs.remove("--skip-coverage")
         flags = RUN_FLAGS
     else:
-        try:
-            os.remove(".coverage")
-        except:
-            # Ignore errors
-            pass
-
         flags = [*RUN_FLAGS, *COVERAGE_FLAGS]
 
     session.run("python", *py_flags, "-m", "pytest", *flags, *session.posargs, config.TEST_PACKAGE)

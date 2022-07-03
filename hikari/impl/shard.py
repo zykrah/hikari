@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-__all__: typing.List[str] = ["GatewayShardImpl"]
+__all__: typing.Sequence[str] = ("GatewayShardImpl",)
 
 import asyncio
 import contextlib
@@ -57,11 +57,11 @@ if typing.TYPE_CHECKING:
     import aiohttp.typedefs
 
     from hikari import channels
-    from hikari import config
     from hikari import guilds
     from hikari import users as users_
     from hikari.api import event_factory as event_factory_
     from hikari.api import event_manager as event_manager_
+    from hikari.impl import config
 
 # Important attributes
 _D: typing.Final[str] = sys.intern("d")
@@ -98,6 +98,18 @@ _TOTAL_RATELIMIT: typing.Final[typing.Tuple[float, int]] = (60.0, 120)
 _CHUNKING_RATELIMIT: typing.Final[typing.Tuple[float, int]] = (60.0, 60)
 # Supported gateway version
 _VERSION: int = 8
+# Used to identify the end of a ZLIB payload
+_ZLIB_SUFFIX: typing.Final[bytes] = b"\x00\x00\xff\xff"
+# Close codes which don't invalidate the current session.
+_RECONNECTABLE_CLOSE_CODES: typing.FrozenSet[errors.ShardCloseCode] = frozenset(
+    (
+        errors.ShardCloseCode.UNKNOWN_ERROR,
+        errors.ShardCloseCode.DECODE_ERROR,
+        errors.ShardCloseCode.INVALID_SEQ,
+        errors.ShardCloseCode.SESSION_TIMEOUT,
+        errors.ShardCloseCode.RATE_LIMITED,
+    )
+)
 
 
 def _log_filterer(token: str) -> typing.Callable[[str], str]:
@@ -112,6 +124,7 @@ if typing.TYPE_CHECKING:
     _ZlibDecompressor = zlib._Decompress
 
 
+# aiohttp.ClientWebSocketResponse isn't slotted
 @typing.final
 class _GatewayTransport(aiohttp.ClientWebSocketResponse):
     """Internal component to handle lower-level communication logic.
@@ -123,8 +136,6 @@ class _GatewayTransport(aiohttp.ClientWebSocketResponse):
     Payload logging is also performed here.
     """
 
-    __slots__: typing.Sequence[str] = ("zlib", "logger", "log_filterer", "sent_close")
-
     def __init__(self, *args: typing.Any, **kwargs: typing.Any) -> None:
         super().__init__(*args, **kwargs)
         self.zlib: _ZlibDecompressor = zlib.decompressobj()
@@ -135,21 +146,22 @@ class _GatewayTransport(aiohttp.ClientWebSocketResponse):
         self.logger: logging.Logger
         self.log_filterer: typing.Callable[[str], str]
 
-    async def send_close(self, *, code: int = 1000, message: bytes = b"") -> bool:
+    async def send_close(self, *, code: int = 1000, message: bytes = b"") -> None:
         # aiohttp may close the socket by invoking close() internally. By giving
         # a different name, we can ensure aiohttp won't invoke this method.
         # We can then guarantee any call to this method was made by us, as
         # opposed to, for example, Windows injecting a spurious EOF when
         # something disconnects, which makes aiohttp just shut down as if we
         # did it.
-        if not self.sent_close:
-            self.sent_close = True
-            self.logger.debug("sending close frame with code %s and message %s", int(code), message)
-            try:
-                return await asyncio.wait_for(super().close(code=code, message=message), timeout=5)
-            except asyncio.TimeoutError:
-                self.logger.debug("failed to send close frame in time, probably connection issues")
-        return False
+        if self.sent_close:
+            return
+
+        self.sent_close = True
+        self.logger.debug("sending close frame with code %s and message %s", int(code), message)
+        try:
+            await asyncio.wait_for(super().close(code=code, message=message), timeout=5)
+        except asyncio.TimeoutError:
+            self.logger.debug("failed to send close frame in time, probably connection issues")
 
     async def receive_json(
         self,
@@ -176,54 +188,62 @@ class _GatewayTransport(aiohttp.ClientWebSocketResponse):
             self.logger.log(ux.TRACE, "sending payload with size %s\n    %s", len(pl), filtered)
         await self.send_str(pl, compress)
 
-    async def _receive_and_check(self, timeout: typing.Optional[float], /) -> str:
-        buff = bytearray()
+    def _handle_other_message(self, message: aiohttp.WSMessage, /) -> typing.NoReturn:
+        if message.type == aiohttp.WSMsgType.CLOSE:
+            close_code = int(message.data)
+            reason = message.extra
+            self.logger.error("connection closed with code %s (%s)", close_code, reason)
+            can_reconnect = close_code < 4000 or close_code in _RECONNECTABLE_CLOSE_CODES
+            raise errors.GatewayServerClosedConnectionError(reason, close_code, can_reconnect)
 
-        while True:
+        if message.type == aiohttp.WSMsgType.CLOSING or message.type == aiohttp.WSMsgType.CLOSED:
+            # May be caused by the server shutting us down.
+            # May be caused by Windows injecting an EOF if something disconnects, as some
+            # network drivers appear to do this.
+            raise errors.GatewayConnectionError("Socket has closed")
+
+        # Assume exception for now.
+        ex = self.exception()
+        self.logger.warning(
+            "encountered unexpected error: %s",
+            ex,
+            exc_info=ex if self.logger.isEnabledFor(logging.DEBUG) else None,
+        )
+        raise errors.GatewayError("Unexpected websocket exception from gateway") from ex
+
+    async def _receive_and_check(self, timeout: typing.Optional[float], /) -> str:
+        message = await self.receive(timeout)
+
+        if message.type == aiohttp.WSMsgType.TEXT:
+            assert isinstance(message.data, str)
+            return message.data
+
+        if message.type == aiohttp.WSMsgType.BINARY:
+            if message.data.endswith(_ZLIB_SUFFIX):
+                return self.zlib.decompress(message.data).decode("utf-8")
+
+            return await self._receive_and_check_complete_zlib_package(message.data, timeout)
+
+        self._handle_other_message(message)
+
+    async def _receive_and_check_complete_zlib_package(
+        self, initial_data: bytes, timeout: typing.Optional[float], /
+    ) -> str:
+        buff = bytearray(initial_data)
+
+        while not buff.endswith(_ZLIB_SUFFIX):
             message = await self.receive(timeout)
 
-            if message.type == aiohttp.WSMsgType.CLOSE:
-                close_code = int(message.data)
-                reason = message.extra
-                self.logger.error("connection closed with code %s (%s)", close_code, reason)
-
-                can_reconnect = close_code < 4000 or close_code in (
-                    errors.ShardCloseCode.UNKNOWN_ERROR,
-                    errors.ShardCloseCode.DECODE_ERROR,
-                    errors.ShardCloseCode.INVALID_SEQ,
-                    errors.ShardCloseCode.SESSION_TIMEOUT,
-                    errors.ShardCloseCode.RATE_LIMITED,
-                )
-
-                raise errors.GatewayServerClosedConnectionError(reason, close_code, can_reconnect)
-
-            elif message.type == aiohttp.WSMsgType.CLOSING or message.type == aiohttp.WSMsgType.CLOSED:
-                # May be caused by the server shutting us down.
-                # May be caused by Windows injecting an EOF if something disconnects, as some
-                # network drivers appear to do this.
-                raise errors.GatewayConnectionError("Socket has closed")
-
-            elif len(buff) != 0 and message.type != aiohttp.WSMsgType.BINARY:
-                raise errors.GatewayError(f"Unexpected message type received {message.type.name}, expected BINARY")
-
-            elif message.type == aiohttp.WSMsgType.BINARY:
+            if message.type == aiohttp.WSMsgType.BINARY:
                 buff.extend(message.data)
+                continue
 
-                if buff.endswith(b"\x00\x00\xff\xff"):
-                    return self.zlib.decompress(buff).decode("utf-8")
+            if message.type == aiohttp.WSMsgType.TEXT:
+                raise errors.GatewayError("Unexpected message type received TEXT, expected BINARY")
 
-            elif message.type == aiohttp.WSMsgType.TEXT:
-                return message.data  # type: ignore
+            self._handle_other_message(message)
 
-            else:
-                # Assume exception for now.
-                ex = self.exception()
-                self.logger.warning(
-                    "encountered unexpected error: %s",
-                    ex,
-                    exc_info=ex if self.logger.isEnabledFor(logging.DEBUG) else None,
-                )
-                raise errors.GatewayError("Unexpected websocket exception from gateway") from ex
+        return self.zlib.decompress(buff).decode("utf-8")
 
     @classmethod
     @contextlib.asynccontextmanager
@@ -259,6 +279,8 @@ class _GatewayTransport(aiohttp.ClientWebSocketResponse):
                     proxy=proxy_settings.url,
                     proxy_headers=proxy_settings.headers,
                     url=url,
+                    # We manage these ourselves
+                    autoclose=False,
                 )
             )
             assert isinstance(web_socket, cls)
@@ -296,17 +318,23 @@ class _GatewayTransport(aiohttp.ClientWebSocketResponse):
                         message=b"client is shutting down",
                     )
 
-        except (aiohttp.ClientOSError, aiohttp.ClientConnectionError, aiohttp.WSServerHandshakeError) as ex:
+        except (
+            aiohttp.ClientOSError,
+            aiohttp.ClientConnectionError,
+            aiohttp.WSServerHandshakeError,
+            asyncio.TimeoutError,
+        ) as ex:
             # Windows will sometimes raise an aiohttp.ClientOSError
             # If we cannot do DNS lookup, this will fail with a ClientConnectionError
-            # usually.
+            # usually, but it might also fail with asyncio.TimeoutError if its gets stuck in a weird way
             #
-            # aiohttp.WSServerHandshakeError has a really bad str, so we use the repr instead.
+            # aiohttp.WSServerHandshakeError has a really bad str, so we use the repr instead
             if isinstance(ex, aiohttp.WSServerHandshakeError):
                 reason = repr(ex)
+            elif isinstance(ex, asyncio.TimeoutError):
+                reason = "Timeout exceeded"
             else:
                 reason = str(ex)
-
             raise errors.GatewayConnectionError(reason) from None
 
         finally:
@@ -360,9 +388,9 @@ class GatewayShardImpl(shard.GatewayShard):
         The shard ID.
     shard_count : builtins.int
         The shard count.
-    http_settings : hikari.config.HTTPSettings
+    http_settings : hikari.impl.config.HTTPSettings
         The HTTP-related settings to use while negotiating a websocket.
-    proxy_settings : hikari.config.ProxySettings
+    proxy_settings : hikari.impl.config.ProxySettings
         The proxy settings to use while negotiating a websocket.
     data_format : builtins.str
         Data format to use for inbound data. Only supported format is
@@ -495,13 +523,14 @@ class GatewayShardImpl(shard.GatewayShard):
 
     @property
     def is_alive(self) -> bool:
-        return self._run_task is not None and not self._run_task.done()
+        return self._ws is not None and not self._ws.sent_close
 
     @property
     def shard_count(self) -> int:
         return self._shard_count
 
     async def close(self) -> None:
+        self._check_if_alive()
         if not self._closing_event.is_set():
             try:
                 if self._ws is not None:
@@ -531,7 +560,7 @@ class GatewayShardImpl(shard.GatewayShard):
         return self._ws
 
     async def join(self) -> None:
-        """Wait for this shard to close, if running."""
+        self._check_if_alive()
         await self._closed_event.wait()
 
     async def _send_json(
@@ -687,9 +716,9 @@ class GatewayShardImpl(shard.GatewayShard):
                 "compress": False,
                 "large_threshold": self._large_threshold,
                 "properties": {
-                    "$os": f"{platform.system()} {platform.architecture()[0]}",
-                    "$browser": f"aiohttp {aiohttp.__version__}",
-                    "$device": f"hikari {about.__version__}",
+                    "os": f"{platform.system()} {platform.architecture()[0]}",
+                    "browser": f"hikari ({about.__version__}, aiohttp {aiohttp.__version__})",
+                    "device": f"hikari {about.__version__}",
                 },
                 "shard": [self._shard_id, self._shard_count],
             },
@@ -816,7 +845,7 @@ class GatewayShardImpl(shard.GatewayShard):
                         return
 
                 except errors.GatewayConnectionError as ex:
-                    self._logger.error(
+                    self._logger.warning(
                         "failed to communicate with server, reason was: %r. Will retry shortly", ex.reason
                     )
 

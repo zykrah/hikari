@@ -27,8 +27,8 @@ import sys
 import mock
 import pytest
 
-from hikari import config
 from hikari import errors
+from hikari.impl import config
 from hikari.impl import entity_factory as entity_factory_impl
 from hikari.impl import interaction_server as interaction_server_impl
 from hikari.impl import rest as rest_impl
@@ -168,6 +168,32 @@ class TestRESTBot:
                 entity_factory=result.entity_factory, public_key=b"ofdododoo", rest_client=result.rest
             )
 
+    def test___init___strips_token(self):
+        cls = hikari_test_helpers.mock_class_namespace(rest_bot_impl.RESTBot, print_banner=mock.Mock())
+
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.object(ux, "init_logging"))
+        rest_client = stack.enter_context(mock.patch.object(rest_impl, "RESTClientImpl"))
+        http_settings = stack.enter_context(mock.patch.object(config, "HTTPSettings"))
+        proxy_settings = stack.enter_context(mock.patch.object(config, "ProxySettings"))
+        stack.enter_context(mock.patch.object(interaction_server_impl, "InteractionServer"))
+
+        with stack:
+            result = cls("\n\r sddsa tokenoken \n", "token_type")
+
+        rest_client.assert_called_once_with(
+            cache=None,
+            entity_factory=result.entity_factory,
+            executor=None,
+            http_settings=http_settings.return_value,
+            max_rate_limit=300.0,
+            max_retries=3,
+            proxy_settings=proxy_settings.return_value,
+            rest_url=None,
+            token="sddsa tokenoken",
+            token_type="token_type",
+        )
+
     def test___init___generates_default_settings(self):
         cls = hikari_test_helpers.mock_class_namespace(rest_bot_impl.RESTBot, print_banner=mock.Mock())
         stack = contextlib.ExitStack()
@@ -176,6 +202,7 @@ class TestRESTBot:
         stack.enter_context(mock.patch.object(rest_impl, "RESTClientImpl"))
         stack.enter_context(mock.patch.object(config, "HTTPSettings"))
         stack.enter_context(mock.patch.object(config, "ProxySettings"))
+        stack.enter_context(mock.patch.object(interaction_server_impl, "InteractionServer"))
 
         with stack:
             result = cls("token", "token_type")
@@ -205,9 +232,9 @@ class TestRESTBot:
 
     def test_print_banner(self, mock_rest_bot):
         with mock.patch.object(ux, "print_banner") as print_banner:
-            mock_rest_bot.print_banner("okokok", True, False)
+            mock_rest_bot.print_banner("okokok", True, False, {"test_key": "test_value"})
 
-            print_banner.assert_called_once_with("okokok", True, False)
+            print_banner.assert_called_once_with("okokok", True, False, extra_args={"test_key": "test_value"})
 
     @pytest.mark.asyncio()
     async def test_close(self, mock_rest_bot, mock_interaction_server, mock_rest_client):

@@ -24,7 +24,6 @@ import datetime
 import mock
 import pytest
 
-from hikari import config
 from hikari import embeds
 from hikari import emojis
 from hikari import guilds
@@ -35,7 +34,9 @@ from hikari import stickers
 from hikari import undefined
 from hikari import users
 from hikari import voices
+from hikari.api import config as config_api
 from hikari.impl import cache as cache_impl_
+from hikari.impl import config
 from hikari.internal import cache as cache_utilities
 from hikari.internal import collections
 from tests.hikari import hikari_test_helpers
@@ -66,9 +67,9 @@ class TestCacheImpl:
         create_cache.assert_called_once_with()
 
     def test__is_cache_enabled_for(self, cache_impl):
-        cache_impl._settings.components = config.CacheComponents.MESSAGES | config.CacheComponents.GUILDS
+        cache_impl._settings.components = config_api.CacheComponents.MESSAGES | config_api.CacheComponents.GUILDS
 
-        assert cache_impl._is_cache_enabled_for(config.CacheComponents.MESSAGES) is True
+        assert cache_impl._is_cache_enabled_for(config_api.CacheComponents.MESSAGES) is True
 
     def test__increment_ref_count(self, cache_impl):
         mock_obj = mock.Mock(ref_count=10)
@@ -1471,6 +1472,13 @@ class TestCacheImpl:
         assert cache_impl._me == mock_own_user
         assert cache_impl._me is not mock_own_user
 
+    def test_set_me_when_not_enabled(self, cache_impl):
+        cache_impl._settings.components = 0
+
+        cache_impl.set_me(object())
+
+        assert cache_impl._me is None
+
     def test_update_me_for_cached_me(self, cache_impl):
         mock_cached_own_user = mock.MagicMock(users.OwnUser)
         mock_own_user = mock.MagicMock(users.OwnUser)
@@ -1488,6 +1496,17 @@ class TestCacheImpl:
 
         assert result == (None, mock_own_user)
         assert cache_impl._me == mock_own_user
+
+    def test_update_me_for_when_not_enabled(self, cache_impl):
+        cache_impl._settings.components = 0
+        cache_impl.get_me = mock.Mock()
+        cache_impl.set_me = mock.Mock()
+
+        result = cache_impl.update_me(object())
+
+        assert result == (None, None)
+        cache_impl.get_me.assert_not_called()
+        cache_impl.set_me.assert_not_called()
 
     def test__build_member(self, cache_impl):
         mock_user = mock.MagicMock(users.User)
@@ -2418,12 +2437,9 @@ class TestCacheImpl:
         member_data = mock.Mock(build_entity=mock.Mock(return_value=mock_member))
         mock_channel = mock.MagicMock()
         mock_mention_user = mock.MagicMock()
-        mention_data = cache_utilities.MentionsData(
-            users={snowflakes.Snowflake(4231): cache_utilities.RefCell(mock_mention_user)},
-            role_ids=(snowflakes.Snowflake(21323123),),
-            channels={snowflakes.Snowflake(4444): mock_channel},
-            everyone=True,
-        )
+        mock_user_mentions = {snowflakes.Snowflake(4231): cache_utilities.RefCell(mock_mention_user)}
+        mock_role_mention_ids = (snowflakes.Snowflake(21323123),)
+        mock_channel_mentions = {snowflakes.Snowflake(4444): mock_channel}
         mock_attachment = mock.MagicMock(messages.Attachment)
         mock_embed_field = mock.MagicMock(embeds.EmbedField)
         mock_embed = mock.MagicMock(embeds.Embed, fields=(mock_embed_field,))
@@ -2449,7 +2465,10 @@ class TestCacheImpl:
             timestamp=datetime.datetime(2020, 7, 30, 7, 10, 9, 550233, tzinfo=datetime.timezone.utc),
             edited_timestamp=datetime.datetime(2020, 8, 30, 7, 10, 9, 550233, tzinfo=datetime.timezone.utc),
             is_tts=True,
-            mentions=mention_data,
+            user_mentions=mock_user_mentions,
+            role_mention_ids=mock_role_mention_ids,
+            channel_mentions=mock_channel_mentions,
+            mentions_everyone=False,
             attachments=(mock_attachment,),
             embeds=(mock_embed,),
             reactions=(mock_reaction,),
@@ -2480,13 +2499,10 @@ class TestCacheImpl:
         assert result.timestamp == datetime.datetime(2020, 7, 30, 7, 10, 9, 550233, tzinfo=datetime.timezone.utc)
         assert result.edited_timestamp == datetime.datetime(2020, 8, 30, 7, 10, 9, 550233, tzinfo=datetime.timezone.utc)
         assert result.is_tts is True
-
-        # MentionsData
-        assert result.mentions.users == {4231: mock_mention_user}
-        assert result.mentions.role_ids == (snowflakes.Snowflake(21323123),)
-        assert result.mentions.channels == {4444: mock_channel}
-        assert result.mentions.everyone is True
-
+        assert result.user_mentions == {4231: mock_mention_user}
+        assert result.role_mention_ids == (snowflakes.Snowflake(21323123),)
+        assert result.channel_mentions == {4444: mock_channel}
+        assert result.mentions_everyone is False
         assert result.attachments == (mock_attachment,)
 
         for field in (
@@ -2526,12 +2542,6 @@ class TestCacheImpl:
         assert result.components == (mock_component,)
 
     def test__build_message_with_null_fields(self, cache_impl):
-        mentions = cache_utilities.MentionsData(
-            role_ids=undefined.UNDEFINED,
-            channels=undefined.UNDEFINED,
-            everyone=undefined.UNDEFINED,
-            users=undefined.UNDEFINED,
-        )
         message_data = cache_utilities.MessageData(
             id=snowflakes.Snowflake(32123123),
             channel_id=snowflakes.Snowflake(3123123123),
@@ -2542,7 +2552,10 @@ class TestCacheImpl:
             timestamp=datetime.datetime(2020, 7, 30, 7, 10, 9, 550233, tzinfo=datetime.timezone.utc),
             edited_timestamp=None,
             is_tts=True,
-            mentions=mentions,
+            user_mentions=undefined.UNDEFINED,
+            role_mention_ids=undefined.UNDEFINED,
+            channel_mentions=undefined.UNDEFINED,
+            mentions_everyone=undefined.UNDEFINED,
             attachments=(),
             embeds=(),
             reactions=(),
@@ -2570,10 +2583,10 @@ class TestCacheImpl:
         assert result.is_tts is True
 
         # MentionsData
-        assert result.mentions.users is undefined.UNDEFINED
-        assert result.mentions.role_ids is undefined.UNDEFINED
-        assert result.mentions.channels is undefined.UNDEFINED
-        assert result.mentions.everyone is undefined.UNDEFINED
+        assert result.user_mentions is undefined.UNDEFINED
+        assert result.role_mention_ids is undefined.UNDEFINED
+        assert result.channel_mentions is undefined.UNDEFINED
+        assert result.mentions_everyone is undefined.UNDEFINED
 
         assert result.webhook_id is None
         assert result.activity is None
@@ -2675,94 +2688,106 @@ class TestCacheImpl:
     @pytest.mark.parametrize(
         ("name", "component", "expected"),
         [
-            ("clear_dm_channel_ids", config.CacheComponents.DM_CHANNEL_IDS, cache_utilities.EmptyCacheView()),
-            ("delete_dm_channel_id", config.CacheComponents.DM_CHANNEL_IDS, None),
-            ("get_dm_channel_id", config.CacheComponents.DM_CHANNEL_IDS, None),
-            ("get_dm_channel_ids_view", config.CacheComponents.DM_CHANNEL_IDS, cache_utilities.EmptyCacheView()),
-            ("set_dm_channel_id", config.CacheComponents.DM_CHANNEL_IDS, None),
-            ("clear_emojis", config.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
-            ("clear_emojis_for_guild", config.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
-            ("clear_guild_channels", config.CacheComponents.GUILD_CHANNELS, cache_utilities.EmptyCacheView()),
-            ("clear_guild_channels_for_guild", config.CacheComponents.GUILD_CHANNELS, cache_utilities.EmptyCacheView()),
-            ("clear_guilds", config.CacheComponents.GUILDS, cache_utilities.EmptyCacheView()),
-            ("clear_invites", config.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
-            ("clear_invites_for_channel", config.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
-            ("clear_invites_for_guild", config.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
-            ("clear_members", config.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
-            ("clear_members_for_guild", config.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
-            ("clear_messages", config.CacheComponents.MESSAGES, cache_utilities.EmptyCacheView()),
-            ("clear_presences", config.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
-            ("clear_presences_for_guild", config.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
-            ("clear_roles", config.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
-            ("clear_roles_for_guild", config.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
-            ("clear_voice_states", config.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
-            ("clear_voice_states_for_channel", config.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
-            ("clear_voice_states_for_guild", config.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
-            ("delete_emoji", config.CacheComponents.EMOJIS, None),
-            ("delete_guild", config.CacheComponents.GUILDS, None),
-            ("delete_guild_channel", config.CacheComponents.GUILD_CHANNELS, None),
-            ("delete_invite", config.CacheComponents.INVITES, None),
-            ("delete_member", config.CacheComponents.MEMBERS, None),
-            ("delete_message", config.CacheComponents.MESSAGES, None),
-            ("delete_presence", config.CacheComponents.PRESENCES, None),
-            ("delete_role", config.CacheComponents.ROLES, None),
-            ("delete_voice_state", config.CacheComponents.VOICE_STATES, None),
-            ("get_available_guild", config.CacheComponents.GUILDS, None),
-            ("get_available_guilds_view", config.CacheComponents.GUILDS, cache_utilities.EmptyCacheView()),
-            ("get_emoji", config.CacheComponents.EMOJIS, None),
-            ("get_emojis_view", config.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
-            ("get_emojis_view_for_guild", config.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
-            ("get_guild", config.CacheComponents.GUILDS, None),
-            ("get_guild_channel", config.CacheComponents.GUILD_CHANNELS, None),
+            ("clear_dm_channel_ids", config_api.CacheComponents.DM_CHANNEL_IDS, cache_utilities.EmptyCacheView()),
+            ("delete_dm_channel_id", config_api.CacheComponents.DM_CHANNEL_IDS, None),
+            ("get_dm_channel_id", config_api.CacheComponents.DM_CHANNEL_IDS, None),
+            ("get_dm_channel_ids_view", config_api.CacheComponents.DM_CHANNEL_IDS, cache_utilities.EmptyCacheView()),
+            ("set_dm_channel_id", config_api.CacheComponents.DM_CHANNEL_IDS, None),
+            ("clear_emojis", config_api.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
+            ("clear_emojis_for_guild", config_api.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
+            ("clear_guild_channels", config_api.CacheComponents.GUILD_CHANNELS, cache_utilities.EmptyCacheView()),
+            (
+                "clear_guild_channels_for_guild",
+                config_api.CacheComponents.GUILD_CHANNELS,
+                cache_utilities.EmptyCacheView(),
+            ),
+            ("clear_guilds", config_api.CacheComponents.GUILDS, cache_utilities.EmptyCacheView()),
+            ("clear_invites", config_api.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
+            ("clear_invites_for_channel", config_api.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
+            ("clear_invites_for_guild", config_api.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
+            ("clear_members", config_api.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
+            ("clear_members_for_guild", config_api.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
+            ("clear_messages", config_api.CacheComponents.MESSAGES, cache_utilities.EmptyCacheView()),
+            ("clear_presences", config_api.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
+            ("clear_presences_for_guild", config_api.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
+            ("clear_roles", config_api.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
+            ("clear_roles_for_guild", config_api.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
+            ("clear_voice_states", config_api.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
+            (
+                "clear_voice_states_for_channel",
+                config_api.CacheComponents.VOICE_STATES,
+                cache_utilities.EmptyCacheView(),
+            ),
+            ("clear_voice_states_for_guild", config_api.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
+            ("delete_emoji", config_api.CacheComponents.EMOJIS, None),
+            ("delete_guild", config_api.CacheComponents.GUILDS, None),
+            ("delete_guild_channel", config_api.CacheComponents.GUILD_CHANNELS, None),
+            ("delete_invite", config_api.CacheComponents.INVITES, None),
+            ("delete_member", config_api.CacheComponents.MEMBERS, None),
+            ("delete_message", config_api.CacheComponents.MESSAGES, None),
+            ("delete_presence", config_api.CacheComponents.PRESENCES, None),
+            ("delete_role", config_api.CacheComponents.ROLES, None),
+            ("delete_voice_state", config_api.CacheComponents.VOICE_STATES, None),
+            ("get_available_guild", config_api.CacheComponents.GUILDS, None),
+            ("get_available_guilds_view", config_api.CacheComponents.GUILDS, cache_utilities.EmptyCacheView()),
+            ("get_emoji", config_api.CacheComponents.EMOJIS, None),
+            ("get_emojis_view", config_api.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
+            ("get_emojis_view_for_guild", config_api.CacheComponents.EMOJIS, cache_utilities.EmptyCacheView()),
+            ("get_guild", config_api.CacheComponents.GUILDS, None),
+            ("get_guild_channel", config_api.CacheComponents.GUILD_CHANNELS, None),
             (
                 "get_guild_channels_view_for_guild",
-                config.CacheComponents.GUILD_CHANNELS,
+                config_api.CacheComponents.GUILD_CHANNELS,
                 cache_utilities.EmptyCacheView(),
             ),
-            ("get_invite", config.CacheComponents.INVITES, None),
-            ("get_invites_view", config.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
-            ("get_invites_view_for_channel", config.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
-            ("get_invites_view_for_guild", config.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
-            ("get_member", config.CacheComponents.MEMBERS, None),
-            ("get_members_view", config.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
-            ("get_members_view_for_guild", config.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
-            ("get_message", config.CacheComponents.MESSAGES, None),
-            ("get_messages_view", config.CacheComponents.MESSAGES, cache_utilities.EmptyCacheView()),
-            ("get_presence", config.CacheComponents.PRESENCES, None),
-            ("get_presences_view", config.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
-            ("get_presences_view_for_guild", config.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
-            ("get_role", config.CacheComponents.ROLES, None),
-            ("get_roles_view", config.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
-            ("get_roles_view_for_guild", config.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
-            ("get_unavailable_guild", config.CacheComponents.GUILDS, None),
-            ("get_unavailable_guilds_view", config.CacheComponents.GUILDS, cache_utilities.EmptyCacheView()),
-            ("get_voice_state", config.CacheComponents.VOICE_STATES, None),
-            ("get_voice_states_view", config.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
+            ("get_invite", config_api.CacheComponents.INVITES, None),
+            ("get_invites_view", config_api.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
+            ("get_invites_view_for_channel", config_api.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
+            ("get_invites_view_for_guild", config_api.CacheComponents.INVITES, cache_utilities.EmptyCacheView()),
+            ("get_member", config_api.CacheComponents.MEMBERS, None),
+            ("get_members_view", config_api.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
+            ("get_members_view_for_guild", config_api.CacheComponents.MEMBERS, cache_utilities.EmptyCacheView()),
+            ("get_message", config_api.CacheComponents.MESSAGES, None),
+            ("get_messages_view", config_api.CacheComponents.MESSAGES, cache_utilities.EmptyCacheView()),
+            ("get_presence", config_api.CacheComponents.PRESENCES, None),
+            ("get_presences_view", config_api.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
+            ("get_presences_view_for_guild", config_api.CacheComponents.PRESENCES, cache_utilities.EmptyCacheView()),
+            ("get_role", config_api.CacheComponents.ROLES, None),
+            ("get_roles_view", config_api.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
+            ("get_roles_view_for_guild", config_api.CacheComponents.ROLES, cache_utilities.EmptyCacheView()),
+            ("get_unavailable_guild", config_api.CacheComponents.GUILDS, None),
+            ("get_unavailable_guilds_view", config_api.CacheComponents.GUILDS, cache_utilities.EmptyCacheView()),
+            ("get_voice_state", config_api.CacheComponents.VOICE_STATES, None),
+            ("get_voice_states_view", config_api.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
             (
                 "get_voice_states_view_for_channel",
-                config.CacheComponents.VOICE_STATES,
+                config_api.CacheComponents.VOICE_STATES,
                 cache_utilities.EmptyCacheView(),
             ),
-            ("get_voice_states_view_for_guild", config.CacheComponents.VOICE_STATES, cache_utilities.EmptyCacheView()),
-            ("set_emoji", config.CacheComponents.EMOJIS, None),
-            ("set_guild", config.CacheComponents.GUILDS, None),
-            ("set_guild_availability", config.CacheComponents.GUILDS, None),
-            ("set_guild_channel", config.CacheComponents.GUILD_CHANNELS, None),
-            ("set_invite", config.CacheComponents.INVITES, None),
-            ("set_member", config.CacheComponents.MEMBERS, None),
-            ("set_message", config.CacheComponents.MESSAGES, None),
-            ("set_presence", config.CacheComponents.PRESENCES, None),
-            ("set_role", config.CacheComponents.ROLES, None),
-            ("set_voice_state", config.CacheComponents.VOICE_STATES, None),
-            ("update_emoji", config.CacheComponents.EMOJIS, (None, None)),
-            ("update_guild", config.CacheComponents.GUILDS, (None, None)),
-            ("update_guild_channel", config.CacheComponents.GUILD_CHANNELS, (None, None)),
-            ("update_invite", config.CacheComponents.INVITES, (None, None)),
-            ("update_member", config.CacheComponents.MEMBERS, (None, None)),
-            ("update_message", config.CacheComponents.MESSAGES, (None, None)),
-            ("update_presence", config.CacheComponents.PRESENCES, (None, None)),
-            ("update_role", config.CacheComponents.ROLES, (None, None)),
-            ("update_voice_state", config.CacheComponents.VOICE_STATES, (None, None)),
+            (
+                "get_voice_states_view_for_guild",
+                config_api.CacheComponents.VOICE_STATES,
+                cache_utilities.EmptyCacheView(),
+            ),
+            ("set_emoji", config_api.CacheComponents.EMOJIS, None),
+            ("set_guild", config_api.CacheComponents.GUILDS, None),
+            ("set_guild_availability", config_api.CacheComponents.GUILDS, None),
+            ("set_guild_channel", config_api.CacheComponents.GUILD_CHANNELS, None),
+            ("set_invite", config_api.CacheComponents.INVITES, None),
+            ("set_member", config_api.CacheComponents.MEMBERS, None),
+            ("set_message", config_api.CacheComponents.MESSAGES, None),
+            ("set_presence", config_api.CacheComponents.PRESENCES, None),
+            ("set_role", config_api.CacheComponents.ROLES, None),
+            ("set_voice_state", config_api.CacheComponents.VOICE_STATES, None),
+            ("update_emoji", config_api.CacheComponents.EMOJIS, (None, None)),
+            ("update_guild", config_api.CacheComponents.GUILDS, (None, None)),
+            ("update_guild_channel", config_api.CacheComponents.GUILD_CHANNELS, (None, None)),
+            ("update_invite", config_api.CacheComponents.INVITES, (None, None)),
+            ("update_member", config_api.CacheComponents.MEMBERS, (None, None)),
+            ("update_message", config_api.CacheComponents.MESSAGES, (None, None)),
+            ("update_presence", config_api.CacheComponents.PRESENCES, (None, None)),
+            ("update_role", config_api.CacheComponents.ROLES, (None, None)),
+            ("update_voice_state", config_api.CacheComponents.VOICE_STATES, (None, None)),
         ],
     )
     def test_function_default(self, cache_impl, name, component, expected):

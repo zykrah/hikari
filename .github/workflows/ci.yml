@@ -4,10 +4,14 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:
-      # Allows for matrix sub-jobs to fail without canceling the rest
+      # Allows for matrix sub-jobs to fail without cancelling the rest
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -17,10 +21,10 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup python
-        uses: actions/setup-python@v2.3.1
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -38,12 +42,12 @@ jobs:
         run: |
           pip install nox
           nox -s pytest
-          nox -s pytest-speedups -- --cov-append
+          nox -s pytest-all-features -- --cov-append
 
           mv .coverage .coverage.${{ matrix.os }}.${{ matrix.python-version }}
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: coverage
           path: .coverage.${{ matrix.os }}.${{ matrix.python-version }}
@@ -57,15 +61,15 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup python
-        uses: actions/setup-python@v2.3.1
+        uses: actions/setup-python@v4
         with:
           python-version: 3.8
 
       - name: Download coverage
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: coverage
 
@@ -87,10 +91,10 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup python
-        uses: actions/setup-python@v2.3.1
+        uses: actions/setup-python@v4
         with:
           python-version: 3.8
 
@@ -107,17 +111,17 @@ jobs:
       - name: Linting
         if: always()
         run: |
-          nox -s safety mypy verify-types flake8 codespell check-trailing-whitespaces
+          nox -s safety mypy verify-types flake8 slotscheck codespell check-trailing-whitespaces
 
   twemoji:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup python
-        uses: actions/setup-python@v2.3.1
+        uses: actions/setup-python@v4
         with:
           python-version: 3.8
 
@@ -131,15 +135,15 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup python
-        uses: actions/setup-python@v2.3.1
+        uses: actions/setup-python@v4
         with:
           python-version: 3.8
 
       - name: Setup node
-        uses: actions/setup-node@v2.5.1
+        uses: actions/setup-node@v3
 
       - name: Build pages
         run: |
@@ -148,7 +152,7 @@ jobs:
 
       - name: Upload artifacts
         if: github.event_name != 'release'
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: pages
           path: public
@@ -159,21 +163,17 @@ jobs:
   # other jobs are subject to change
   ci-done:
     needs: [upload-coverage, linting, twemoji, pages]
-    if: always()
+    if: always() && !cancelled()
 
     runs-on: ubuntu-latest
 
     steps:
-      - name: Mark status based on past job status
+      - name: Set status based on required jobs
         env:
-          # All new need jobs need to be added here with the prefix "RESULT_"
-          RESULT_UPLOAD_COVERAGE: ${{ needs.upload-coverage.result }}
-          RESULT_LINTING: ${{ needs.linting.result }}
-          RESULT_TWEMOJI: ${{ needs.twemoji.result }}
-          RESULT_PAGES: ${{ needs.pages.result }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          if [ "$(env | grep 'RESULT_')" = "$(env | grep "RESULT_" | grep '=success')" ]; then
-            exit 0
-          else
-            exit 1
-          fi
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              exit 1
+            fi
+          done

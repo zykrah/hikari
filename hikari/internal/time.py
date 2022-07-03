@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-__all__: typing.List[str] = [
+__all__: typing.Sequence[str] = (
     "DISCORD_EPOCH",
     "datetime_to_discord_epoch",
     "discord_epoch_to_datetime",
@@ -36,7 +36,7 @@ __all__: typing.List[str] = [
     "monotonic",
     "monotonic_ns",
     "uuid",
-]
+)
 
 import datetime
 import time
@@ -201,12 +201,12 @@ def utc_datetime() -> datetime.datetime:
 
 # time.monotonic_ns is no slower than time.monotonic, but is more accurate.
 # Also, fun fact that monotonic_ns appears to be 1µs faster on average than
-# monotonic on AARM64 architectures, but on x86, monotonic is around 1ns faster
+# monotonic on ARM64 architectures, but on x86, monotonic is around 1ns faster
 # than monotonic_ns. Just thought that was kind of interesting to note down.
 # (RPi 3B versus i7 6700)
 
-# time.perf_counter and time.perf_counter_ns dont have proper typehints, causing
-# pdoc to not be able to recognice them. This is just a little hack around that.
+# time.perf_counter and time.perf_counter_ns don't have proper typehints, causing
+# pdoc to not be able to recognise them. This is just a little hack around that.
 def monotonic() -> float:
     """Performance counter for benchmarking."""  # noqa: D401 - Imperative mood
     return time.perf_counter()

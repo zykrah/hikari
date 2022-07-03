@@ -23,25 +23,22 @@
 """Custom data structures used within Hikari's core implementation."""
 from __future__ import annotations
 
-__all__: typing.List[str] = [
+__all__: typing.Sequence[str] = (
     "ExtendedMapT",
     "KeyT",
     "ValueT",
     "SnowflakeSet",
     "ExtendedMutableMapping",
     "FreezableDict",
-    "TimedCacheMap",
     "LimitedCapacityCacheMap",
     "get_index_or_slice",
-]
+)
 
 import abc
 import array
 import bisect
-import datetime
 import itertools
 import sys
-import time
 import typing
 
 from hikari import snowflakes
@@ -135,114 +132,6 @@ class FreezableDict(ExtendedMutableMapping[KeyT, ValueT]):
 
     def __setitem__(self, key: KeyT, value: ValueT) -> None:
         self._data[key] = value
-
-
-class _FrozenDict(typing.MutableMapping[KeyT, ValueT]):
-    __slots__: typing.Sequence[str] = ("_source",)
-
-    def __init__(self, source: typing.Dict[KeyT, typing.Tuple[float, ValueT]], /) -> None:
-        self._source = source
-
-    def __getitem__(self, key: KeyT) -> ValueT:
-        return self._source[key][1]
-
-    def __iter__(self) -> typing.Iterator[KeyT]:
-        return iter(self._source)
-
-    def __len__(self) -> int:
-        return len(self._source)
-
-    def __delitem__(self, key: KeyT) -> None:
-        del self._source[key]
-
-    def __setitem__(self, key: KeyT, value: ValueT) -> None:
-        self._source[key] = (0.0, value)
-
-
-class TimedCacheMap(ExtendedMutableMapping[KeyT, ValueT]):
-    """A most-recently-inserted limited mutable mapping implementation.
-
-    This will remove entries on modification as as they pass the expiry limit.
-
-    Parameters
-    ----------
-    expiry : datetime.timedelta
-        The timedelta of how long entries should be stored for before removal.
-
-    Other Parameters
-    ----------------
-    source : typing.Optional[typing.Dict[KeyT, typing.Tuple[builtins.float, ValueT]]
-        A source dictionary of keys to tuples of float timestamps and values to
-        create this from.
-    on_expire : typing.Optional[typing.Callable[[ValueT], None]]
-        A function to call each time an item is garbage collected from this
-        map. This should take one positional argument of the same type stored
-        in this mapping as the value and should return `builtins.None`.
-
-        This will always be called after the entry has been removed.
-    """
-
-    __slots__: typing.Sequence[str] = ("_data", "_expiry", "_on_expire")
-
-    def __init__(
-        self,
-        source: typing.Optional[typing.Dict[KeyT, typing.Tuple[float, ValueT]]] = None,
-        /,
-        *,
-        expiry: datetime.timedelta,
-        on_expire: typing.Optional[typing.Callable[[ValueT], None]] = None,
-    ) -> None:
-        if expiry <= datetime.timedelta():
-            raise ValueError("expiry time must be greater than 0 microseconds.")
-
-        self._expiry: float = expiry.total_seconds()
-        self._data = source or {}
-        self._on_expire = on_expire
-        self._garbage_collect()
-
-    def clear(self) -> None:
-        self._data.clear()
-
-    def copy(self) -> TimedCacheMap[KeyT, ValueT]:
-        return TimedCacheMap(
-            self._data.copy(), expiry=datetime.timedelta(seconds=self._expiry), on_expire=self._on_expire
-        )
-
-    def freeze(self) -> typing.MutableMapping[KeyT, ValueT]:
-        return _FrozenDict(self._data.copy())
-
-    def _garbage_collect(self) -> None:
-        current_time = time.perf_counter()
-        for key, value in tuple(self._data.items()):
-            if current_time - value[0] < self._expiry:
-                break
-
-            del self._data[key]
-
-            if self._on_expire:
-                self._on_expire(value[1])
-
-    def __delitem__(self, key: KeyT) -> None:
-        del self._data[key]
-        self._garbage_collect()
-
-    def __getitem__(self, key: KeyT) -> ValueT:
-        return self._data[key][1]
-
-    def __iter__(self) -> typing.Iterator[KeyT]:
-        return iter(self._data)
-
-    def __len__(self) -> int:
-        return len(self._data)
-
-    def __setitem__(self, key: KeyT, value: ValueT) -> None:
-        #  Seeing as we rely on insertion order in _garbage_collect, we have to make sure that each item is added to
-        #  the end of the dict.
-        if key in self:
-            del self[key]
-
-        self._data[key] = (time.perf_counter(), value)
-        self._garbage_collect()
 
 
 class LimitedCapacityCacheMap(ExtendedMutableMapping[KeyT, ValueT]):
@@ -446,8 +335,6 @@ def get_index_or_slice(
 
     Raises
     ------
-    TypeError
-        If `index_or_slice` isn't a `builtins.slice` or `builtins.int`.
     IndexError
         If `index_or_slice` is an int and is outside the range of the mapping's
         contents.
@@ -455,10 +342,7 @@ def get_index_or_slice(
     if isinstance(index_or_slice, slice):
         return tuple(itertools.islice(mapping.values(), index_or_slice.start, index_or_slice.stop, index_or_slice.step))
 
-    if isinstance(index_or_slice, int):
-        try:
-            return next(itertools.islice(mapping.values(), index_or_slice, None))
-        except StopIteration:
-            raise IndexError(index_or_slice) from None
-
-    raise TypeError(f"sequence indices must be integers or slices, not {type(index_or_slice).__name__}")
+    try:
+        return next(itertools.islice(mapping.values(), index_or_slice, None))
+    except StopIteration:
+        raise IndexError(index_or_slice) from None

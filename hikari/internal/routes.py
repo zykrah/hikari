@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-__all__: typing.List[str] = ["CompiledRoute", "Route", "CDNRoute"]
+__all__: typing.Sequence[str] = ("CompiledRoute", "Route", "CDNRoute")
 
 import math
 import re
@@ -43,6 +43,7 @@ MAJOR_PARAM_COMBOS: typing.Mapping[typing.FrozenSet[str], typing.Callable[[typin
     frozenset(("channel",)): lambda d: d["channel"],
     frozenset(("guild",)): lambda d: d["guild"],
     frozenset(("webhook", "token")): lambda d: d["webhook"] + ":" + d["token"],
+    frozenset(("webhook",)): lambda d: d["webhook"],
 }
 
 
@@ -369,6 +370,15 @@ DELETE_GUILD_EMOJI: typing.Final[Route] = Route(DELETE, "/guilds/{guild}/emojis/
 GET_GUILD_EMOJIS: typing.Final[Route] = Route(GET, "/guilds/{guild}/emojis")
 POST_GUILD_EMOJIS: typing.Final[Route] = Route(POST, "/guilds/{guild}/emojis")
 
+GET_GUILD_SCHEDULED_EVENT: typing.Final[Route] = Route(GET, "/guilds/{guild}/scheduled-events/{scheduled_event}")
+GET_GUILD_SCHEDULED_EVENTS: typing.Final[Route] = Route(GET, "/guilds/{guild}/scheduled-events")
+GET_GUILD_SCHEDULED_EVENT_USERS: typing.Final[Route] = Route(
+    GET, "/guilds/{guild}/scheduled-events/{scheduled_event}/users"
+)
+POST_GUILD_SCHEDULED_EVENT: typing.Final[Route] = Route(POST, "/guilds/{guild}/scheduled-events")
+PATCH_GUILD_SCHEDULED_EVENT: typing.Final[Route] = Route(PATCH, "/guilds/{guild}/scheduled-events/{scheduled_event}")
+DELETE_GUILD_SCHEDULED_EVENT: typing.Final[Route] = Route(DELETE, "/guilds/{guild}/scheduled-events/{scheduled_event}")
+
 GET_GUILD_STICKER: typing.Final[Route] = Route(GET, "/guilds/{guild}/stickers/{sticker}")
 PATCH_GUILD_STICKER: typing.Final[Route] = Route(PATCH, "/guilds/{guild}/stickers/{sticker}")
 DELETE_GUILD_STICKER: typing.Final[Route] = Route(DELETE, "/guilds/{guild}/stickers/{sticker}")
@@ -536,7 +546,7 @@ CDN_GUILD_SPLASH: typing.Final[CDNRoute] = CDNRoute("/splashes/{guild_id}/{hash}
 CDN_GUILD_DISCOVERY_SPLASH: typing.Final[CDNRoute] = CDNRoute(
     "/discovery-splashes/{guild_id}/{hash}", {PNG, *JPEG_JPG, WEBP}
 )
-CDN_GUILD_BANNER: typing.Final[CDNRoute] = CDNRoute("/banners/{guild_id}/{hash}", {PNG, *JPEG_JPG, WEBP})
+CDN_GUILD_BANNER: typing.Final[CDNRoute] = CDNRoute("/banners/{guild_id}/{hash}", {PNG, *JPEG_JPG, WEBP, GIF})
 
 CDN_DEFAULT_USER_AVATAR: typing.Final[CDNRoute] = CDNRoute("/embed/avatars/{discriminator}", {PNG}, sizable=False)
 CDN_USER_AVATAR: typing.Final[CDNRoute] = CDNRoute("/avatars/{user_id}/{hash}", {PNG, *JPEG_JPG, WEBP, GIF})
@@ -548,6 +558,7 @@ CDN_ROLE_ICON: typing.Final[CDNRoute] = CDNRoute("/role-icons/{role_id}/{hash}",
 
 CDN_APPLICATION_ICON: typing.Final[CDNRoute] = CDNRoute("/app-icons/{application_id}/{hash}", {PNG, *JPEG_JPG, WEBP})
 CDN_APPLICATION_COVER: typing.Final[CDNRoute] = CDNRoute("/app-assets/{application_id}/{hash}", {PNG, *JPEG_JPG, WEBP})
+CDN_APPLICATION_ASSET: typing.Final[CDNRoute] = CDNRoute("/app-assets/{application_id}/{hash}", {PNG, *JPEG_JPG, WEBP})
 CDN_ACHIEVEMENT_ICON: typing.Final[CDNRoute] = CDNRoute(
     "/app-assets/{application_id}/achievements/{achievement_id}/icons/{hash}", {PNG, *JPEG_JPG, WEBP}
 )
@@ -561,3 +572,5 @@ CDN_STICKER: typing.Final[CDNRoute] = CDNRoute("/stickers/{sticker_id}", {PNG, L
 CDN_STICKER_PACK_BANNER: typing.Final[CDNRoute] = CDNRoute(
     "/app-assets/710982414301790216/store/{hash}", {PNG, *JPEG_JPG, WEBP}
 )
+
+SCHEDULED_EVENT_COVER: typing.Final[CDNRoute] = CDNRoute("/guilds/{scheduled_event_id}/{hash}", {PNG, *JPEG_JPG, WEBP})

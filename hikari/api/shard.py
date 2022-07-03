@@ -23,7 +23,7 @@
 """Provides an interface for gateway shard implementations to conform to."""
 from __future__ import annotations
 
-__all__: typing.List[str] = ["GatewayDataFormat", "GatewayCompression", "GatewayShard"]
+__all__: typing.Sequence[str] = ("GatewayDataFormat", "GatewayCompression", "GatewayShard")
 
 import abc
 import typing
@@ -141,11 +141,11 @@ class GatewayShard(abc.ABC):
 
     @abc.abstractmethod
     async def close(self) -> None:
-        """Close the websocket if it is connected, otherwise do nothing."""
+        """Close the websocket if it is connected."""
 
     @abc.abstractmethod
     async def join(self) -> None:
-        """Wait indefinitely until the websocket closes permanently.
+        """Wait indefinitely until the websocket closes.
 
         This can be placed in a task and cancelled without affecting the
         websocket runtime itself.

@@ -29,13 +29,13 @@ import mock
 import pytest
 
 from hikari import applications
-from hikari import config
 from hikari import errors
 from hikari import presences
 from hikari import snowflakes
 from hikari import undefined
 from hikari.impl import bot as bot_impl
 from hikari.impl import cache as cache_impl
+from hikari.impl import config
 from hikari.impl import entity_factory as entity_factory_impl
 from hikari.impl import event_factory as event_factory_impl
 from hikari.impl import event_manager as event_manager_impl
@@ -192,6 +192,7 @@ class TestGatewayBot:
                 cache_settings=cache_settings,
                 http_settings=http_settings,
                 intents=intents,
+                auto_chunk_members=False,
                 logs="DEBUG",
                 max_rate_limit=200,
                 max_retries=0,
@@ -204,7 +205,13 @@ class TestGatewayBot:
         assert bot._cache is cache.return_value
         cache.assert_called_once_with(bot, cache_settings)
         assert bot._event_manager is event_manager.return_value
-        event_manager.assert_called_once_with(event_factory.return_value, intents, cache=cache.return_value)
+        event_manager.assert_called_once_with(
+            entity_factory.return_value,
+            event_factory.return_value,
+            intents,
+            auto_chunk_members=False,
+            cache=cache.return_value,
+        )
         assert bot._entity_factory is entity_factory.return_value
         entity_factory.assert_called_once_with(bot)
         assert bot._event_factory is event_factory.return_value
@@ -251,6 +258,18 @@ class TestGatewayBot:
         proxy_settings.assert_called_once_with()
         cache.assert_called_once_with(bot, cache_settings.return_value)
         cache_settings.assert_called_once_with()
+
+    def test_init_strips_token(self):
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.object(ux, "init_logging"))
+        stack.enter_context(mock.patch.object(bot_impl.GatewayBot, "print_banner"))
+
+        with stack:
+            bot = bot_impl.GatewayBot(
+                "\n\r token yeet \r\n", cache_settings=None, http_settings=None, proxy_settings=None
+            )
+
+        assert bot._token == "token yeet"
 
     def test_cache(self, bot, cache):
         assert bot.cache is cache
@@ -360,7 +379,8 @@ class TestGatewayBot:
         assert bot._is_alive is True
 
     @pytest.mark.asyncio()
-    async def test__close(self, bot, event_manager, event_factory, rest, voice, cache):
+    @pytest.mark.parametrize("is_alive", [True, False])
+    async def test__close(self, bot, event_manager, event_factory, rest, voice, cache, is_alive):
         def null_call(arg):
             return arg
 
@@ -397,7 +417,7 @@ class TestGatewayBot:
         voice.close = AwaitableMock()
         bot._closing_event = closing_event = mock.Mock(is_set=mock.Mock(return_value=False))
         bot._closed_event = None
-        bot._is_alive = True
+        bot._is_alive = is_alive
         error = RuntimeError()
         shard0 = mock.Mock(id=0, close=AwaitableMock())
         shard1 = mock.Mock(id=1, close=AwaitableMock(error))
@@ -423,7 +443,6 @@ class TestGatewayBot:
                 mock.call(shard1.close()),
                 mock.call(shard2.close()),
             ],
-            any_order=False,
         )
 
         rest.close.assert_awaited_once()
@@ -446,14 +465,16 @@ class TestGatewayBot:
         assert bot._shards == {}
         cache.clear.assert_called_once_with()
 
-        # Dispatching events in the right order
-        event_manager.dispatch.assert_has_calls(
-            [
-                mock.call(event_factory.deserialize_stopping_event.return_value),
-                mock.call(event_factory.deserialize_stopped_event.return_value),
-            ],
-            any_order=False,
-        )
+        if is_alive:
+            # Dispatching events in the right order
+            event_manager.dispatch.assert_has_calls(
+                [
+                    mock.call(event_factory.deserialize_stopping_event.return_value),
+                    mock.call(event_factory.deserialize_stopped_event.return_value),
+                ],
+            )
+        else:
+            event_manager.dispatch.assert_not_called()
 
     def test_dispatch(self, bot, event_manager):
         event = object()
@@ -516,9 +537,9 @@ class TestGatewayBot:
 
     def test_print_banner(self, bot):
         with mock.patch.object(ux, "print_banner") as print_banner:
-            bot.print_banner("testing", False, True)
+            bot.print_banner("testing", False, True, extra_args={"test_key": "test_value"})
 
-        print_banner.assert_called_once_with("testing", False, True)
+        print_banner.assert_called_once_with("testing", False, True, extra_args={"test_key": "test_value"})
 
     def test_run_when_already_running(self, bot):
         bot._is_alive = True
