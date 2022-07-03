@@ -23,7 +23,7 @@
 """User-experience extensions and utilities."""
 from __future__ import annotations
 
-__all__: typing.List[str] = ["init_logging", "print_banner", "supports_color", "HikariVersion", "check_for_updates"]
+__all__: typing.Sequence[str] = ("init_logging", "print_banner", "supports_color", "HikariVersion", "check_for_updates")
 
 import importlib.resources
 import logging
@@ -33,7 +33,6 @@ import platform
 import re
 import string
 import sys
-import time
 import typing
 import warnings
 
@@ -43,7 +42,7 @@ from hikari import _about as about
 from hikari.internal import net
 
 if typing.TYPE_CHECKING:
-    from hikari import config
+    from hikari.impl import config
 
     CmpTuple = typing.Tuple[int, int, int, typing.Union[int, float]]
 
@@ -148,7 +147,12 @@ _UNCONDITIONAL_ANSI_FLAGS: typing.Final[typing.FrozenSet[str]] = frozenset(("PYC
 """Set of env variables which always indicate that ANSI flags should be included."""
 
 
-def print_banner(package: typing.Optional[str], allow_color: bool, force_color: bool) -> None:
+def print_banner(
+    package: typing.Optional[str],
+    allow_color: bool,
+    force_color: bool,
+    extra_args: typing.Optional[typing.Dict[str, str]] = None,
+) -> None:
     """Print a banner of choice to `sys.stdout`.
 
     Inspired by Spring Boot, we display an ASCII logo on startup. This is styled
@@ -172,6 +176,14 @@ def print_banner(package: typing.Optional[str], allow_color: bool, force_color: 
         If `builtins.True`, return `builtins.True` always, otherwise only
         return `builtins.True` if the device supports colour output and the
         `allow_color` flag is not `builtins.False`.
+    extra_args : typing.Optional[typing.Dict[builtins.str, builtins.str]]
+        If provided, extra $-substitutions to use when printing the banner.
+        Default substitutions can not be overwritten.
+
+    Raises
+    ------
+    builtins.ValueError
+        If `extra_args` contains a default $-substitution.
     """
     if package is None:
         return
@@ -198,16 +210,20 @@ def print_banner(package: typing.Optional[str], allow_color: bool, force_color: 
         "system_description": " ".join(filtered_system_bits),
     }
 
+    if extra_args:
+        for key in extra_args:
+            if key in args:
+                raise ValueError(f"Cannot overwrite $-substitution `{key}`. Please use a different key.")
+        args.update(extra_args)
+
     if supports_color(allow_color, force_color):
         args.update(colorlog.escape_codes.escape_codes)
     else:
         for code in colorlog.escape_codes.escape_codes:
             args[code] = ""
 
-    sys.stdout.write(string.Template(raw_banner).safe_substitute(args))
-    # Give the stream some time to flush
-    sys.stdout.flush()
-    time.sleep(0.125)
+    with open(sys.stdout.fileno(), "w", encoding="utf-8", closefd=False) as stdout:
+        stdout.write(string.Template(raw_banner).safe_substitute(args))
 
 
 def supports_color(allow_color: bool, force_color: bool) -> bool:

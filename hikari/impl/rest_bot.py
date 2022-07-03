@@ -23,17 +23,17 @@
 """Standard implementations of a Interaction based REST-only bot."""
 from __future__ import annotations
 
-__all__: typing.List[str] = ["RESTBot"]
+__all__: typing.Sequence[str] = ("RESTBot",)
 
 import asyncio
 import logging
 import sys
 import typing
 
-from hikari import config
 from hikari import errors
 from hikari import traits
 from hikari.api import interaction_server as interaction_server_
+from hikari.impl import config as config_impl
 from hikari.impl import entity_factory as entity_factory_impl
 from hikari.impl import interaction_server as interaction_server_impl
 from hikari.impl import rest as rest_impl
@@ -55,7 +55,8 @@ if typing.TYPE_CHECKING:
 
     _InteractionT_co = typing.TypeVar("_InteractionT_co", bound=base_interactions.PartialInteraction, covariant=True)
     _MessageResponseBuilderT = typing.Union[
-        special_endpoints.InteractionDeferredBuilder, special_endpoints.InteractionMessageBuilder
+        special_endpoints.InteractionDeferredBuilder,
+        special_endpoints.InteractionMessageBuilder,
     ]
 
 _LOGGER: typing.Final[logging.Logger] = logging.getLogger("hikari.rest_bot")
@@ -66,17 +67,14 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
 
     Parameters
     ----------
-    token : typing.Union[builtins.str, builtins.None, hikari.api.rest.TokenStrategy]
-        The bot or bearer token. If no token is to be used,
-        this can be undefined.
-    token_type : typing.Union[builtins.str, hikari.applications.TokenType, builtins.None]
+    token : typing.Union[builtins.str, hikari.api.rest.TokenStrategy]
+        The bot or bearer token.
+    token_type : typing.Union[builtins.str, hikari.applications.TokenType]
         The type of token in use. This should only be passed when `builtins.str`
-        is passed for `token`, can be `"Bot"` or `"Bearer"` and will be
-        defaulted to `"Bearer"` in this situation.
+        is passed for `token`, can be `"Bot"` or `"Bearer"`.
 
-        This should be left as `builtins.None` when either
-        `hikari.api.rest.TokenStrategy` or `builtins.None` is passed for
-        `token`.
+        This should be left as `builtins.None` when `hikari.api.rest.TokenStrategy`
+        is passed for `token`.
 
     Other Parameters
     ----------------
@@ -202,11 +200,11 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         banner: typing.Optional[str] = "hikari",
         executor: typing.Optional[concurrent.futures.Executor] = None,
         force_color: bool = False,
-        http_settings: typing.Optional[config.HTTPSettings] = None,
+        http_settings: typing.Optional[config_impl.HTTPSettings] = None,
         logs: typing.Union[None, int, str, typing.Dict[str, typing.Any]] = "INFO",
         max_rate_limit: float = 300.0,
         max_retries: int = 3,
-        proxy_settings: typing.Optional[config.ProxySettings] = None,
+        proxy_settings: typing.Optional[config_impl.ProxySettings] = None,
         rest_url: typing.Optional[str] = None,
     ) -> None:
         ...
@@ -222,11 +220,11 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         banner: typing.Optional[str] = "hikari",
         executor: typing.Optional[concurrent.futures.Executor] = None,
         force_color: bool = False,
-        http_settings: typing.Optional[config.HTTPSettings] = None,
+        http_settings: typing.Optional[config_impl.HTTPSettings] = None,
         logs: typing.Union[None, int, str, typing.Dict[str, typing.Any]] = "INFO",
         max_rate_limit: float = 300.0,
         max_retries: int = 3,
-        proxy_settings: typing.Optional[config.ProxySettings] = None,
+        proxy_settings: typing.Optional[config_impl.ProxySettings] = None,
         rest_url: typing.Optional[str] = None,
     ) -> None:
         ...
@@ -241,15 +239,18 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         banner: typing.Optional[str] = "hikari",
         executor: typing.Optional[concurrent.futures.Executor] = None,
         force_color: bool = False,
-        http_settings: typing.Optional[config.HTTPSettings] = None,
+        http_settings: typing.Optional[config_impl.HTTPSettings] = None,
         logs: typing.Union[None, int, str, typing.Dict[str, typing.Any]] = "INFO",
         max_rate_limit: float = 300.0,
         max_retries: int = 3,
-        proxy_settings: typing.Optional[config.ProxySettings] = None,
+        proxy_settings: typing.Optional[config_impl.ProxySettings] = None,
         rest_url: typing.Optional[str] = None,
     ) -> None:
         if isinstance(public_key, str):
             public_key = bytes.fromhex(public_key)
+
+        if isinstance(token, str):
+            token = token.strip()
 
         # Beautification and logging
         ux.init_logging(logs, allow_color, force_color)
@@ -258,9 +259,9 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         # Settings and state
         self._close_event: typing.Optional[asyncio.Event] = None
         self._executor = executor
-        self._http_settings = http_settings if http_settings is not None else config.HTTPSettings()
+        self._http_settings = http_settings if http_settings is not None else config_impl.HTTPSettings()
         self._is_closing = False
-        self._proxy_settings = proxy_settings if proxy_settings is not None else config.ProxySettings()
+        self._proxy_settings = proxy_settings if proxy_settings is not None else config_impl.ProxySettings()
 
         # Entity creation
         self._entity_factory = entity_factory_impl.EntityFactoryImpl(self)
@@ -303,11 +304,11 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         return self._entity_factory
 
     @property
-    def http_settings(self) -> config.HTTPSettings:
+    def http_settings(self) -> config_impl.HTTPSettings:
         return self._http_settings
 
     @property
-    def proxy_settings(self) -> config.ProxySettings:
+    def proxy_settings(self) -> config_impl.ProxySettings:
         return self._proxy_settings
 
     @property
@@ -315,7 +316,12 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         return self._executor
 
     @staticmethod
-    def print_banner(banner: typing.Optional[str], allow_color: bool, force_color: bool) -> None:
+    def print_banner(
+        banner: typing.Optional[str],
+        allow_color: bool,
+        force_color: bool,
+        extra_args: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> None:
         """Print the banner.
 
         This allows library vendors to override this behaviour, or choose to
@@ -340,8 +346,16 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
 
         !!! note
             `force_color` will always take precedence over `allow_color`.
+        extra_args : typing.Optional[typing.Dict[builtins.str, builtins.str]]
+            If provided, extra $-substitutions to use when printing the banner.
+            Default substitutions can not be overwritten.
+
+        Raises
+        ------
+        builtins.ValueError
+            If `extra_args` contains a default $-substitution.
         """
-        ux.print_banner(banner, allow_color, force_color)
+        ux.print_banner(banner, allow_color, force_color, extra_args=extra_args)
 
     async def close(self) -> None:
         if not self._close_event:
@@ -375,7 +389,7 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         close_loop: bool = True,
         close_passed_executor: bool = False,
         coroutine_tracking_depth: typing.Optional[int] = None,
-        enable_signal_handlers: bool = True,
+        enable_signal_handlers: typing.Optional[bool] = None,
         host: typing.Optional[typing.Union[str, typing.Sequence[str]]] = None,
         path: typing.Optional[str] = None,
         port: typing.Optional[int] = None,
@@ -401,7 +415,7 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         close_loop : builtins.bool
             Defaults to `builtins.True`. If `builtins.True`, then once the bot
             enters a state where all components have shut down permanently
-            during application shutdown, then all asyngens and background tasks
+            during application shutdown, then all asyncgens and background tasks
             will be destroyed, and the event loop will be shut down.
 
             This will wait until all `hikari`-owned `aiohttp` connectors have
@@ -421,14 +435,16 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
             tracked with their call origin state. This allows you to determine
             where non-awaited coroutines may originate from, but generally you
             do not want to leave this enabled for performance reasons.
-        enable_signal_handlers : builtins.bool
-            Defaults to `builtins.True`. If on a __non-Windows__ OS with builtin
-            support for kernel-level POSIX signals, then setting this to
-            `builtins.True` will allow treating keyboard interrupts and other
-            OS signals to safely shut down the application as calls to
-            shut down the application properly rather than just killing the
-            process in a dirty state immediately. You should leave this disabled
-            unless you plan to implement your own signal handling yourself.
+        enable_signal_handlers : typing.Optional[builtins.bool]
+            Defaults to `builtins.True` if this is started in the main thread.
+
+            If on a __non-Windows__ OS with builtin support for kernel-level
+            POSIX signals, then setting this to `builtins.True` will allow
+            treating keyboard interrupts and other OS signals to safely shut
+            down the application as calls to shut down the application properly
+            rather than just killing the process in a dirty state immediately.
+            You should leave this enabled unless you plan to implement your own
+            signal handling yourself.
         host : typing.Optional[typing.Union[builtins.str, aiohttp.web.HostSequence]]
             TCP/IP host or a sequence of hosts for the HTTP server.
         port : typing.Optional[builtins.int]
@@ -493,7 +509,7 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         self,
         backlog: int = 128,
         check_for_updates: bool = True,
-        enable_signal_handlers: bool = True,
+        enable_signal_handlers: typing.Optional[bool] = None,
         host: typing.Optional[typing.Union[str, typing.Sequence[str]]] = None,
         port: typing.Optional[int] = None,
         path: typing.Optional[str] = None,
@@ -513,14 +529,16 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         check_for_updates : builtins.bool
             Defaults to `builtins.True`. If `builtins.True`, will check for
             newer versions of `hikari` on PyPI and notify if available.
-        enable_signal_handlers : builtins.bool
-            Defaults to `builtins.True`. If on a __non-Windows__ OS with builtin
-            support for kernel-level POSIX signals, then setting this to
-            `builtins.True` will allow treating keyboard interrupts and other
-            OS signals to safely shut down the application as calls to
-            shut down the application properly rather than just killing the
-            process in a dirty state immediately. You should leave this disabled
-            unless you plan to implement your own signal handling yourself.
+        enable_signal_handlers : typing.Optional[builtins.bool]
+            Defaults to `builtins.True` if this is started in the main thread.
+
+            If on a __non-Windows__ OS with builtin support for kernel-level
+            POSIX signals, then setting this to `builtins.True` will allow
+            treating keyboard interrupts and other OS signals to safely shut
+            down the application as calls to shut down the application properly
+            rather than just killing the process in a dirty state immediately.
+            You should leave this enabled unless you plan to implement your own
+            signal handling yourself.
         host : typing.Optional[typing.Union[builtins.str, aiohttp.web.HostSequence]]
             TCP/IP host or a sequence of hosts for the HTTP server.
         port : typing.Optional[builtins.int]
@@ -589,6 +607,16 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
 
     @typing.overload
     def get_listener(
+        self, interaction_type: typing.Type[command_interactions.AutocompleteInteraction], /
+    ) -> typing.Optional[
+        interaction_server_.ListenerT[
+            command_interactions.AutocompleteInteraction, special_endpoints.InteractionAutocompleteBuilder
+        ]
+    ]:
+        ...
+
+    @typing.overload
+    def get_listener(
         self, interaction_type: typing.Type[_InteractionT_co], /
     ) -> typing.Optional[interaction_server_.ListenerT[_InteractionT_co, special_endpoints.InteractionResponseBuilder]]:
         ...
@@ -617,6 +645,21 @@ class RESTBot(traits.RESTBotAware, interaction_server_.InteractionServer):
         interaction_type: typing.Type[component_interactions.ComponentInteraction],
         listener: typing.Optional[
             interaction_server_.ListenerT[component_interactions.ComponentInteraction, _MessageResponseBuilderT]
+        ],
+        /,
+        *,
+        replace: bool = False,
+    ) -> None:
+        ...
+
+    @typing.overload
+    def set_listener(
+        self,
+        interaction_type: typing.Type[command_interactions.AutocompleteInteraction],
+        listener: typing.Optional[
+            interaction_server_.ListenerT[
+                command_interactions.AutocompleteInteraction, special_endpoints.InteractionAutocompleteBuilder
+            ]
         ],
         /,
         *,

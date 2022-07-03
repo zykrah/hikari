@@ -23,7 +23,7 @@
 """Implementation of parts of Python's `enum` protocol to be more performant."""
 from __future__ import annotations
 
-__all__: typing.List[str] = ["Enum", "Flag"]
+__all__: typing.Sequence[str] = ("Enum", "Flag")
 
 import functools
 import operator
@@ -696,7 +696,7 @@ class Flag(metaclass=_FlagMeta):
 
         Any unrecognised bits will be omitted for brevity.
 
-        The result will be a name-sorted `typing.Sequence` of each membe
+        The result will be a name-sorted `typing.Sequence` of each member
         """
         return sorted(
             (member for member in self.__class__._powers_of_2_to_member_map_.values() if member.value & self),

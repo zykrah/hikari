@@ -20,6 +20,18 @@ development.
 
 Python 3.8, 3.9 and 3.10 are currently supported.
 
+## Installation
+
+Install Hikari from PyPI with the following command:
+
+```bash
+python -m pip install -U hikari
+# Windows users may need to run this instead...
+py -3 -m pip install -U hikari
+```
+
+----
+
 ## Bots
 
 ```py
@@ -116,19 +128,12 @@ async def print_my_user(token):
 asyncio.run(print_my_user("user token here"))
 ```
 
-----
-
-## Installation
-
-Install Hikari from PyPI with the following command:
-
-```bash
-python -m pip install -U hikari
-# Windows users may need to run this instead...
-py -3 -m pip install -U hikari
-```
-
 ---
+
+## Optional Features
+
+* `hikari[server]` - Install dependencies required to enable Hikari's standard interaction server (RESTBot) functionality.
+* `hikari[speedups]` - Detailed in [`hikari[speedups]`](#hikarispeedups).
 
 ## Additional resources
 
@@ -139,6 +144,7 @@ Hikari does not include a command framework by default, so you will want to pick
 
 - [`lightbulb`](https://github.com/tandemdude/hikari-lightbulb) - a simple and easy to use command framework for Hikari.
 - [`tanjun`](https://github.com/FasterSpeeding/Tanjun) - a flexible command framework designed to extend Hikari.
+- [`crescent`](https://github.com/magpie-dev/hikari-crescent) - a command handler for Hikari that keeps your project neat and tidy.
 
 ---
 
@@ -162,8 +168,8 @@ other internal settings in the interpreter.
 ### `hikari[speedups]`
 
 If you have a C compiler (Microsoft VC++ Redistributable 14.0 or newer, or a modern copy of GCC/G++, Clang, etc), you
-can install Hikari using `pip install -U hikari[speedups]`. This will install `aiodns`, `cchardet`, `Brotli`,
-`ciso8601` and `ed25519`, which will provide you with a small performance boost.
+can install Hikari using `pip install -U hikari[speedups]`. This will install `aiodns`, `cchardet`, `Brotli`, and
+`ciso8601` which will provide you with a small performance boost.
 
 ### `uvloop`
 

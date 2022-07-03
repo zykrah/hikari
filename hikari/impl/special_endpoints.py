@@ -26,17 +26,20 @@ You should never need to make any of these objects manually.
 """
 from __future__ import annotations
 
-__all__: typing.List[str] = [
+__all__: typing.Sequence[str] = (
     "ActionRowBuilder",
     "CommandBuilder",
+    "SlashCommandBuilder",
+    "ContextMenuCommandBuilder",
     "TypingIndicator",
     "GuildBuilder",
+    "InteractionAutocompleteBuilder",
     "InteractionDeferredBuilder",
     "InteractionMessageBuilder",
     "InteractiveButtonBuilder",
     "LinkButtonBuilder",
     "SelectMenuBuilder",
-]
+)
 
 import asyncio
 import typing
@@ -70,14 +73,20 @@ if typing.TYPE_CHECKING:
     from hikari import embeds as embeds_
     from hikari import guilds
     from hikari import permissions as permissions_
+    from hikari import scheduled_events
     from hikari import users
     from hikari import voices
     from hikari.api import entity_factory as entity_factory_
+    from hikari.api import rest as rest_api
 
     _T = typing.TypeVar("_T")
     _CommandBuilderT = typing.TypeVar("_CommandBuilderT", bound="CommandBuilder")
+    _SlashCommandBuilderT = typing.TypeVar("_SlashCommandBuilderT", bound="SlashCommandBuilder")
     _InteractionMessageBuilderT = typing.TypeVar("_InteractionMessageBuilderT", bound="InteractionMessageBuilder")
     _InteractionDeferredBuilderT = typing.TypeVar("_InteractionDeferredBuilderT", bound="InteractionDeferredBuilder")
+    _InteractionAutocompleteBuilderT = typing.TypeVar(
+        "_InteractionAutocompleteBuilderT", bound="InteractionAutocompleteBuilder"
+    )
     _ActionRowBuilderT = typing.TypeVar("_ActionRowBuilderT", bound="ActionRowBuilder")
     _ButtonBuilderT = typing.TypeVar("_ButtonBuilderT", bound="_ButtonBuilder[typing.Any]")
     _SelectOptionBuilderT = typing.TypeVar("_SelectOptionBuilderT", bound="_SelectOptionBuilder[typing.Any]")
@@ -593,8 +602,63 @@ class OwnGuildIterator(iterators.BufferedLazyIterator["applications.OwnGuild"]):
         if not chunk:
             return None
 
+        if self._newest_first:
+            chunk.reverse()
+
         self._first_id = chunk[-1]["id"]
         return (self._entity_factory.deserialize_own_guild(g) for g in chunk)
+
+
+# We use an explicit forward reference for this, since this breaks potential
+# circular import issues (once the file has executed, using those resources is
+# not an issue for us).
+class GuildBanIterator(iterators.BufferedLazyIterator["guilds.GuildBan"]):
+    """Iterator implementation for retrieving guild bans."""
+
+    __slots__: typing.Sequence[str] = (
+        "_entity_factory",
+        "_guild_id",
+        "_request_call",
+        "_route",
+        "_first_id",
+        "_newest_first",
+    )
+
+    def __init__(
+        self,
+        entity_factory: entity_factory_.EntityFactory,
+        request_call: typing.Callable[
+            ..., typing.Coroutine[None, None, typing.Union[None, data_binding.JSONObject, data_binding.JSONArray]]
+        ],
+        guild: snowflakes.SnowflakeishOr[guilds.PartialGuild],
+        newest_first: bool,
+        first_id: str,
+    ) -> None:
+        super().__init__()
+        self._guild_id = snowflakes.Snowflake(str(int(guild)))
+        self._route = routes.GET_GUILD_BANS.compile(guild=guild)
+        self._request_call = request_call
+        self._entity_factory = entity_factory
+        self._first_id = first_id
+        self._newest_first = newest_first
+
+    async def _next_chunk(self) -> typing.Optional[typing.Generator[guilds.GuildBan, typing.Any, None]]:
+        query = data_binding.StringMapBuilder()
+        query.put("before" if self._newest_first else "after", self._first_id)
+        query.put("limit", 1000)
+
+        chunk = await self._request_call(compiled_route=self._route, query=query)
+        assert isinstance(chunk, list)
+
+        if not chunk:
+            return None
+
+        if self._newest_first:
+            # These are always returned in ascending order by `.user.id`.
+            chunk.reverse()
+
+        self._first_id = chunk[-1]["user"]["id"]
+        return (self._entity_factory.deserialize_guild_member_ban(b) for b in chunk)
 
 
 # We use an explicit forward reference for this, since this breaks potential
@@ -636,6 +700,62 @@ class MemberIterator(iterators.BufferedLazyIterator["guilds.Member"]):
         self._first_id = chunk[-1]["user"]["id"]
 
         return (self._entity_factory.deserialize_member(m, guild_id=self._guild_id) for m in chunk)
+
+
+# We use an explicit forward reference for this, since this breaks potential
+# circular import issues (once the file has executed, using those resources is
+# not an issue for us).
+class ScheduledEventUserIterator(iterators.BufferedLazyIterator["scheduled_events.ScheduledEventUser"]):
+    """Implementation of an iterator for retrieving the users subscribed to a scheduled event."""
+
+    __slots__: typing.Sequence[str] = (
+        "_entity_factory",
+        "_first_id",
+        "_guild_id",
+        "_newest_first",
+        "_request_call",
+        "_route",
+    )
+
+    def __init__(
+        self,
+        entity_factory: entity_factory_.EntityFactory,
+        request_call: typing.Callable[
+            ..., typing.Coroutine[None, None, typing.Union[None, data_binding.JSONObject, data_binding.JSONArray]]
+        ],
+        newest_first: bool,
+        first_id: str,
+        guild: snowflakes.SnowflakeishOr[guilds.PartialGuild],
+        event: snowflakes.SnowflakeishOr[scheduled_events.ScheduledEvent],
+    ) -> None:
+        super().__init__()
+        self._entity_factory = entity_factory
+        self._first_id = first_id
+        self._guild_id = snowflakes.Snowflake(guild)
+        self._newest_first = newest_first
+        self._request_call = request_call
+        self._route = routes.GET_GUILD_SCHEDULED_EVENT_USERS.compile(guild=guild, scheduled_event=event)
+
+    async def _next_chunk(
+        self,
+    ) -> typing.Optional[typing.Generator[scheduled_events.ScheduledEventUser, typing.Any, None]]:
+        query = data_binding.StringMapBuilder()
+        query.put("before" if self._newest_first else "after", self._first_id)
+        query.put("limit", 100)
+        query.put("with_member", True)
+
+        chunk = await self._request_call(compiled_route=self._route, query=query)
+        assert isinstance(chunk, list)
+
+        if not chunk:
+            return None
+
+        if self._newest_first:
+            # These are always returned in ascending order by `.user.id`.
+            chunk.reverse()
+
+        self._first_id = chunk[-1]["user"]["id"]
+        return (self._entity_factory.deserialize_scheduled_event_user(u, guild_id=self._guild_id) for u in chunk)
 
 
 # We use an explicit forward reference for this, since this breaks potential
@@ -695,6 +815,41 @@ class AuditLogIterator(iterators.LazyIterator["audit_logs.AuditLog"]):
 
 @attr_extensions.with_copy
 @attr.define(kw_only=False, weakref_slot=False)
+class InteractionAutocompleteBuilder(special_endpoints.InteractionAutocompleteBuilder):
+    """Standard implementation of `hikari.api.special_endpoints.InteractionAutocompleteBuilder`."""
+
+    _choices: typing.Sequence[commands.CommandChoice] = attr.field(factory=list)
+
+    @property
+    def type(self) -> typing.Literal[base_interactions.ResponseType.AUTOCOMPLETE]:
+        return base_interactions.ResponseType.AUTOCOMPLETE
+
+    @property
+    def choices(self) -> typing.Sequence[commands.CommandChoice]:
+        return self._choices
+
+    def set_choices(
+        self: _InteractionAutocompleteBuilderT, choices: typing.Sequence[commands.CommandChoice], /
+    ) -> _InteractionAutocompleteBuilderT:
+        """Set autocomplete choices.
+
+        Returns
+        -------
+        InteractionAutocompleteBuilder
+            Object of this builder.
+        """
+        self._choices = choices
+        return self
+
+    def build(
+        self, _: entity_factory_.EntityFactory, /
+    ) -> typing.Tuple[typing.MutableMapping[str, typing.Any], typing.Sequence[files.Resource[files.AsyncReader]]]:
+        data = {"choices": [{"name": choice.name, "value": choice.value} for choice in self._choices]}
+        return {"type": self.type, "data": data}, ()
+
+
+@attr_extensions.with_copy
+@attr.define(kw_only=False, weakref_slot=False)
 class InteractionDeferredBuilder(special_endpoints.InteractionDeferredBuilder):
     """Standard implementation of `hikari.api.special_endpoints.InteractionDeferredBuilder`.
 
@@ -728,11 +883,13 @@ class InteractionDeferredBuilder(special_endpoints.InteractionDeferredBuilder):
         self._flags = flags
         return self
 
-    def build(self, _: entity_factory_.EntityFactory, /) -> data_binding.JSONObject:
+    def build(
+        self, _: entity_factory_.EntityFactory, /
+    ) -> typing.Tuple[typing.MutableMapping[str, typing.Any], typing.Sequence[files.Resource[files.AsyncReader]]]:
         if self._flags is not undefined.UNDEFINED:
-            return {"type": self._type, "data": {"flags": self._flags}}
+            return {"type": self._type, "data": {"flags": self._flags}}, ()
 
-        return {"type": self._type}
+        return {"type": self._type}, ()
 
 
 @attr_extensions.with_copy
@@ -773,20 +930,29 @@ class InteractionMessageBuilder(special_endpoints.InteractionMessageBuilder):
     _user_mentions: undefined.UndefinedOr[
         typing.Union[snowflakes.SnowflakeishSequence[users.PartialUser], bool]
     ] = attr.field(default=undefined.UNDEFINED, kw_only=True)
-    _components: typing.List[special_endpoints.ComponentBuilder] = attr.field(factory=list, kw_only=True)
-    _embeds: typing.List[embeds_.Embed] = attr.field(factory=list, kw_only=True)
+    _attachments: undefined.UndefinedOr[typing.List[files.Resourceish]] = attr.field(
+        default=undefined.UNDEFINED, kw_only=True
+    )
+    _components: undefined.UndefinedOr[typing.List[special_endpoints.ComponentBuilder]] = attr.field(
+        default=undefined.UNDEFINED, kw_only=True
+    )
+    _embeds: undefined.UndefinedOr[typing.List[embeds_.Embed]] = attr.field(default=undefined.UNDEFINED, kw_only=True)
+
+    @property
+    def attachments(self) -> undefined.UndefinedOr[typing.Sequence[files.Resourceish]]:
+        return self._attachments.copy() if self._attachments is not undefined.UNDEFINED else undefined.UNDEFINED
 
     @property
     def content(self) -> undefined.UndefinedOr[str]:
         return self._content
 
     @property
-    def components(self) -> typing.Sequence[special_endpoints.ComponentBuilder]:
-        return self._components.copy()
+    def components(self) -> undefined.UndefinedOr[typing.Sequence[special_endpoints.ComponentBuilder]]:
+        return self._components.copy() if self._components is not undefined.UNDEFINED else undefined.UNDEFINED
 
     @property
-    def embeds(self) -> typing.Sequence[embeds_.Embed]:
-        return self._embeds.copy()
+    def embeds(self) -> undefined.UndefinedOr[typing.Sequence[embeds_.Embed]]:
+        return self._embeds.copy() if self._embeds is not undefined.UNDEFINED else undefined.UNDEFINED
 
     @property
     def flags(self) -> typing.Union[undefined.UndefinedType, int, messages.MessageFlag]:
@@ -816,13 +982,28 @@ class InteractionMessageBuilder(special_endpoints.InteractionMessageBuilder):
     ) -> undefined.UndefinedOr[typing.Union[snowflakes.SnowflakeishSequence[users.PartialUser], bool]]:
         return self._user_mentions
 
+    def add_attachment(
+        self: _InteractionMessageBuilderT, attachment: files.Resourceish, /
+    ) -> _InteractionMessageBuilderT:
+        if self._attachments is undefined.UNDEFINED:
+            self._attachments = []
+
+        self._attachments.append(attachment)
+        return self
+
     def add_component(
         self: _InteractionMessageBuilderT, component: special_endpoints.ComponentBuilder, /
     ) -> _InteractionMessageBuilderT:
+        if self._components is undefined.UNDEFINED:
+            self._components = []
+
         self._components.append(component)
         return self
 
     def add_embed(self: _InteractionMessageBuilderT, embed: embeds_.Embed, /) -> _InteractionMessageBuilderT:
+        if self._embeds is undefined.UNDEFINED:
+            self._embeds = []
+
         self._embeds.append(embed)
         return self
 
@@ -868,15 +1049,22 @@ class InteractionMessageBuilder(special_endpoints.InteractionMessageBuilder):
         self._user_mentions = user_mentions
         return self
 
-    def build(self, entity_factory: entity_factory_.EntityFactory, /) -> data_binding.JSONObject:
+    def build(
+        self, entity_factory: entity_factory_.EntityFactory, /
+    ) -> typing.Tuple[typing.MutableMapping[str, typing.Any], typing.Sequence[files.Resource[files.AsyncReader]]]:
         data = data_binding.JSONObjectBuilder()
         data.put("content", self.content)
-        if self._embeds:
+
+        if self._attachments:
+            final_attachments = [files.ensure_resource(attachment) for attachment in self._attachments]
+
+        else:
+            final_attachments = []
+
+        if self._embeds is not undefined.UNDEFINED:
             embeds: typing.List[data_binding.JSONObject] = []
             for embed, attachments in map(entity_factory.serialize_embed, self._embeds):
-                if attachments:
-                    raise ValueError("Cannot send an embed with attachments in a slash command's initial response")
-
+                final_attachments.extend(attachments)
                 embeds.append(embed)
 
             data["embeds"] = embeds
@@ -885,70 +1073,153 @@ class InteractionMessageBuilder(special_endpoints.InteractionMessageBuilder):
         data.put("flags", self.flags)
         data.put("tts", self.is_tts)
 
-        if not undefined.all_undefined(self.mentions_everyone, self.user_mentions, self.role_mentions):
+        if (
+            not undefined.all_undefined(self.mentions_everyone, self.user_mentions, self.role_mentions)
+            or self.type is base_interactions.ResponseType.MESSAGE_CREATE
+        ):
             data["allowed_mentions"] = mentions.generate_allowed_mentions(
                 self.mentions_everyone, undefined.UNDEFINED, self.user_mentions, self.role_mentions
             )
 
-        return {"type": self._type, "data": data}
+        return {"type": self._type, "data": data}, final_attachments
 
 
-@attr_extensions.with_copy
 @attr.define(kw_only=False, weakref_slot=False)
 class CommandBuilder(special_endpoints.CommandBuilder):
     """Standard implementation of `hikari.api.special_endpoints.CommandBuilder`."""
 
-    # Required arguments.
     _name: str = attr.field()
-    _description: str = attr.field()
 
-    # Key-word only not-required arguments.
     _id: undefined.UndefinedOr[snowflakes.Snowflake] = attr.field(default=undefined.UNDEFINED, kw_only=True)
-    _default_permission: undefined.UndefinedOr[bool] = attr.field(default=undefined.UNDEFINED, kw_only=True)
-
-    # Non-arguments.
-    _options: typing.List[commands.CommandOption] = attr.field(factory=list)
-
-    @property
-    def description(self) -> str:
-        return self._description
+    _default_member_permissions: typing.Union[undefined.UndefinedType, int, permissions_.Permissions] = attr.field(
+        default=undefined.UNDEFINED, kw_only=True
+    )
+    _is_dm_enabled: undefined.UndefinedOr[bool] = attr.field(default=undefined.UNDEFINED, kw_only=True)
 
     @property
     def id(self) -> undefined.UndefinedOr[snowflakes.Snowflake]:
         return self._id
 
     @property
-    def default_permission(self) -> undefined.UndefinedOr[bool]:
-        return self._default_permission
+    def default_member_permissions(self) -> typing.Union[undefined.UndefinedType, permissions_.Permissions, int]:
+        return self._default_member_permissions
 
     @property
-    def options(self) -> typing.Sequence[commands.CommandOption]:
-        return self._options.copy()
+    def is_dm_enabled(self) -> undefined.UndefinedOr[bool]:
+        return self._is_dm_enabled
 
     @property
     def name(self) -> str:
         return self._name
 
-    def add_option(self: _CommandBuilderT, option: commands.CommandOption) -> _CommandBuilderT:
-        self._options.append(option)
-        return self
-
     def set_id(self: _CommandBuilderT, id_: undefined.UndefinedOr[snowflakes.Snowflakeish], /) -> _CommandBuilderT:
         self._id = snowflakes.Snowflake(id_) if id_ is not undefined.UNDEFINED else undefined.UNDEFINED
         return self
 
-    def set_default_permission(self: _CommandBuilderT, state: undefined.UndefinedOr[bool], /) -> _CommandBuilderT:
-        self._default_permission = state
+    def set_default_member_permissions(
+        self: _CommandBuilderT,
+        default_member_permissions: typing.Union[undefined.UndefinedType, int, permissions_.Permissions],
+        /,
+    ) -> _CommandBuilderT:
+        self._default_member_permissions = default_member_permissions
         return self
 
-    def build(self, entity_factory: entity_factory_.EntityFactory, /) -> data_binding.JSONObject:
+    def set_is_dm_enabled(self: _CommandBuilderT, state: undefined.UndefinedOr[bool], /) -> _CommandBuilderT:
+        self._is_dm_enabled = state
+        return self
+
+    def build(self, _: entity_factory_.EntityFactory, /) -> typing.MutableMapping[str, typing.Any]:
         data = data_binding.JSONObjectBuilder()
         data["name"] = self._name
-        data["description"] = self._description
-        data.put_array("options", self._options, conversion=entity_factory.serialize_command_option)
+        data["type"] = self.type
         data.put_snowflake("id", self._id)
-        data.put("default_permission", self._default_permission)
+        data.put("default_member_permissions", self._default_member_permissions)
+        data.put("dm_permission", self._is_dm_enabled)
         return data
+
+
+@attr_extensions.with_copy
+@attr.define(kw_only=False, weakref_slot=False)
+class SlashCommandBuilder(CommandBuilder, special_endpoints.SlashCommandBuilder):
+    """Builder class for slash commands."""
+
+    _description: str = attr.field()
+    _options: typing.List[commands.CommandOption] = attr.field(factory=list, kw_only=True)
+
+    @property
+    def description(self) -> str:
+        return self._description
+
+    @property
+    def type(self) -> commands.CommandType:
+        return commands.CommandType.SLASH
+
+    def add_option(self: _SlashCommandBuilderT, option: commands.CommandOption) -> _SlashCommandBuilderT:
+        self._options.append(option)
+        return self
+
+    @property
+    def options(self) -> typing.Sequence[commands.CommandOption]:
+        return self._options.copy()
+
+    def build(self, entity_factory: entity_factory_.EntityFactory, /) -> typing.MutableMapping[str, typing.Any]:
+        data = super().build(entity_factory)
+        # Under this context we know this'll always be a JSONObjectBuilder but
+        # the return types need to be kept as MutableMapping to avoid exposing an
+        # internal type on the public API.
+        assert isinstance(data, data_binding.JSONObjectBuilder)
+        data.put("description", self._description)
+        data.put_array("options", self._options, conversion=entity_factory.serialize_command_option)
+        return data
+
+    async def create(
+        self,
+        rest: rest_api.RESTClient,
+        application: snowflakes.SnowflakeishOr[guilds.PartialApplication],
+        /,
+        *,
+        guild: undefined.UndefinedOr[snowflakes.SnowflakeishOr[guilds.PartialGuild]] = undefined.UNDEFINED,
+    ) -> commands.SlashCommand:
+        return await rest.create_slash_command(
+            application,
+            self._name,
+            self._description,
+            guild=guild,
+            options=self._options,
+            default_member_permissions=self._default_member_permissions,
+            dm_enabled=self._is_dm_enabled,
+        )
+
+
+@attr_extensions.with_copy
+@attr.define(kw_only=False, weakref_slot=False)
+class ContextMenuCommandBuilder(CommandBuilder, special_endpoints.ContextMenuCommandBuilder):
+    """Builder class for context menu commands."""
+
+    _type: commands.CommandType = attr.field()
+    # name is re-declared here to ensure type is before it in the initializer's args.
+    _name: str = attr.field()
+
+    @property
+    def type(self) -> commands.CommandType:
+        return self._type
+
+    async def create(
+        self,
+        rest: rest_api.RESTClient,
+        application: snowflakes.SnowflakeishOr[guilds.PartialApplication],
+        /,
+        *,
+        guild: undefined.UndefinedOr[snowflakes.SnowflakeishOr[guilds.PartialGuild]] = undefined.UNDEFINED,
+    ) -> commands.ContextMenuCommand:
+        return await rest.create_context_menu_command(
+            application,
+            self._type,
+            self._name,
+            guild=guild,
+            default_member_permissions=self._default_member_permissions,
+            dm_enabled=self._is_dm_enabled,
+        )
 
 
 def _build_emoji(
@@ -1029,7 +1300,7 @@ class _ButtonBuilder(special_endpoints.ButtonBuilder[_ContainerProtoT]):
         self._container.add_component(self)
         return self._container
 
-    def build(self) -> data_binding.JSONObject:
+    def build(self) -> typing.MutableMapping[str, typing.Any]:
         data = data_binding.JSONObjectBuilder()
 
         data["type"] = messages.ComponentType.BUTTON
@@ -1130,7 +1401,7 @@ class _SelectOptionBuilder(special_endpoints.SelectOptionBuilder["_SelectMenuBui
         self._menu.add_raw_option(self)
         return self._menu
 
-    def build(self) -> data_binding.JSONObject:
+    def build(self) -> typing.MutableMapping[str, typing.Any]:
         data = data_binding.JSONObjectBuilder()
 
         data["label"] = self._label
@@ -1218,7 +1489,7 @@ class SelectMenuBuilder(special_endpoints.SelectMenuBuilder[_ContainerProtoT]):
         self._container.add_component(self)
         return self._container
 
-    def build(self) -> data_binding.JSONObject:
+    def build(self) -> typing.MutableMapping[str, typing.Any]:
         data = data_binding.JSONObjectBuilder()
 
         data["type"] = messages.ComponentType.SELECT_MENU
@@ -1296,7 +1567,7 @@ class ActionRowBuilder(special_endpoints.ActionRowBuilder):
         self._assert_can_add_type(messages.ComponentType.SELECT_MENU)
         return SelectMenuBuilder(container=self, custom_id=custom_id)
 
-    def build(self) -> data_binding.JSONObject:
+    def build(self) -> typing.MutableMapping[str, typing.Any]:
         return {
             "type": messages.ComponentType.ACTION_ROW,
             "components": [component.build() for component in self._components],

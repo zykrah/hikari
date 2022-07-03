@@ -23,12 +23,13 @@
 """Provides an interface for Interaction REST server API implementations to follow."""
 from __future__ import annotations
 
-__all__: typing.List[str] = ["ListenerT", "Response", "InteractionServer"]
+__all__: typing.Sequence[str] = ("ListenerT", "Response", "InteractionServer")
 
 import abc
 import typing
 
 if typing.TYPE_CHECKING:
+    from hikari import files as files_
     from hikari.api import special_endpoints
     from hikari.interactions import base_interactions
     from hikari.interactions import command_interactions
@@ -37,7 +38,8 @@ if typing.TYPE_CHECKING:
     _InteractionT_co = typing.TypeVar("_InteractionT_co", bound=base_interactions.PartialInteraction, covariant=True)
     _ResponseT_co = typing.TypeVar("_ResponseT_co", bound=special_endpoints.InteractionResponseBuilder, covariant=True)
     _MessageResponseBuilderT = typing.Union[
-        special_endpoints.InteractionDeferredBuilder, special_endpoints.InteractionMessageBuilder
+        special_endpoints.InteractionDeferredBuilder,
+        special_endpoints.InteractionMessageBuilder,
     ]
 
 
@@ -45,7 +47,7 @@ ListenerT = typing.Callable[["_InteractionT_co"], typing.Awaitable["_ResponseT_c
 """Type hint of a Interaction server's listener callback.
 
 This should be an async callback which takes in one positional argument which
-subclases `hikari.interactions.base_interactions.PartialInteraction` and may return an
+subclasses `hikari.interactions.base_interactions.PartialInteraction` and may return an
 instance of the relevant `hikari.api.special_endpoints.InteractionResponseBuilder`
 subclass for the provided interaction type which will instruct the server on how
 to respond.
@@ -67,24 +69,23 @@ class Response(typing.Protocol):
     __slots__: typing.Sequence[str] = ()
 
     @property
-    def headers(self) -> typing.Optional[typing.Mapping[str, str]]:
-        """Headers that should be added to the response if applicable.
+    def content_type(self) -> typing.Optional[str]:
+        """Content type of the response's payload, if applicable."""
+        raise NotImplementedError
 
-        Returns
-        -------
-        typing.Optional[typing.Mapping[builtins.str, builtins.str]]
-            A mapping of string header names to string header values that should
-            be included in the response if applicable else `builtins.None`.
-        """
+    @property
+    def files(self) -> typing.Sequence[files_.Resource[files_.AsyncReader]]:
+        """Up to 10 files that should be included alongside a JSON response."""
+        raise NotImplementedError
+
+    @property
+    def headers(self) -> typing.Optional[typing.MutableMapping[str, str]]:
+        """Headers that should be added to the response if applicable."""
         raise NotImplementedError
 
     @property
     def payload(self) -> typing.Optional[bytes]:
         """Payload to provide in the response.
-
-        !!! note
-            If this is not `builtins.None` then an appropriate `"Content-Type"`
-            header should be declared in `Response.headers`
 
         Returns
         -------
@@ -149,6 +150,15 @@ class InteractionServer(abc.ABC):
     @typing.overload
     @abc.abstractmethod
     def get_listener(
+        self, interaction_type: typing.Type[command_interactions.AutocompleteInteraction], /
+    ) -> typing.Optional[
+        ListenerT[command_interactions.AutocompleteInteraction, special_endpoints.InteractionAutocompleteBuilder]
+    ]:
+        ...
+
+    @typing.overload
+    @abc.abstractmethod
+    def get_listener(
         self, interaction_type: typing.Type[_InteractionT_co], /
     ) -> typing.Optional[ListenerT[_InteractionT_co, special_endpoints.InteractionResponseBuilder]]:
         ...
@@ -189,6 +199,20 @@ class InteractionServer(abc.ABC):
         self,
         interaction_type: typing.Type[component_interactions.ComponentInteraction],
         listener: typing.Optional[ListenerT[component_interactions.ComponentInteraction, _MessageResponseBuilderT]],
+        /,
+        *,
+        replace: bool = False,
+    ) -> None:
+        ...
+
+    @typing.overload
+    @abc.abstractmethod
+    def set_listener(
+        self,
+        interaction_type: typing.Type[command_interactions.AutocompleteInteraction],
+        listener: typing.Optional[
+            ListenerT[command_interactions.AutocompleteInteraction, special_endpoints.InteractionAutocompleteBuilder]
+        ],
         /,
         *,
         replace: bool = False,

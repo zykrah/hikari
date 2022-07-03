@@ -27,7 +27,7 @@ This does not include message events, nor reaction events.
 
 from __future__ import annotations
 
-__all__: typing.List[str] = [
+__all__: typing.Sequence[str] = (
     "ChannelEvent",
     "GuildChannelEvent",
     "DMChannelEvent",
@@ -37,10 +37,11 @@ __all__: typing.List[str] = [
     "PinsUpdateEvent",
     "GuildPinsUpdateEvent",
     "DMPinsUpdateEvent",
+    "InviteEvent",
     "InviteCreateEvent",
     "InviteDeleteEvent",
     "WebhookUpdateEvent",
-]
+)
 
 import abc
 import typing

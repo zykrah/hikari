@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-__all__: typing.List[str] = ["Intents"]
+__all__: typing.Sequence[str] = ("Intents",)
 
 import typing
 
@@ -288,9 +288,28 @@ class Intents(enums.Flag):
     """
 
     DM_MESSAGE_TYPING = 1 << 14
-    """Subscribes to the following events
+    """Subscribes to the following events:
 
     * `TYPING_START` (in private message channels (non-guild bound) only)
+    """
+
+    MESSAGE_CONTENT = 1 << 15
+    """Receive message content for all messages.
+
+    DM's to the bot and messages that mention it are exempt from this.
+
+    !!! warning
+        This intent is privileged, and requires enabling/whitelisting to use.
+    """
+
+    GUILD_SCHEDULED_EVENTS = 1 << 16
+    """Subscribes to the following events:
+
+    * `GUILD_SCHEDULED_EVENT_CREATE`
+    * `GUILD_SCHEDULED_EVENT_UPDATE`
+    * `GUILD_SCHEDULED_EVENT_DELETE`
+    * `GUILD_SCHEDULED_EVENT_USER_ADD`
+    * `GUILD_SCHEDULED_EVENT_USER_REMOVE`
     """
 
     # Annoyingly, enums hide classmethods and staticmethods from __dir__ in
@@ -309,6 +328,7 @@ class Intents(enums.Flag):
         | GUILD_MESSAGES
         | GUILD_MESSAGE_REACTIONS
         | GUILD_MESSAGE_TYPING
+        | GUILD_SCHEDULED_EVENTS
     )
     """All unprivileged guild-related intents."""
 
@@ -346,7 +366,7 @@ class Intents(enums.Flag):
     ALL_UNPRIVILEGED = ALL_GUILDS_UNPRIVILEGED | ALL_DMS
     """All unprivileged intents."""
 
-    ALL_PRIVILEGED = ALL_GUILDS_PRIVILEGED
+    ALL_PRIVILEGED = ALL_GUILDS_PRIVILEGED | MESSAGE_CONTENT
     """All privileged intents.
 
     !!! warning

@@ -23,7 +23,7 @@
 """Models and enums used for Discord's Components interaction flow."""
 from __future__ import annotations
 
-__all__: typing.List[str] = ["ComponentInteraction", "COMPONENT_RESPONSE_TYPES", "ComponentResponseTypesT"]
+__all__: typing.Sequence[str] = ("ComponentInteraction", "COMPONENT_RESPONSE_TYPES", "ComponentResponseTypesT")
 
 import typing
 
@@ -35,7 +35,9 @@ from hikari.interactions import base_interactions
 
 if typing.TYPE_CHECKING:
     from hikari import guilds
+    from hikari import locales
     from hikari import messages
+    from hikari import permissions
     from hikari import snowflakes
     from hikari import users
     from hikari.api import special_endpoints
@@ -55,8 +57,7 @@ _ImmediateTypesT = typing.Literal[
 ]
 
 
-# This type ignore accounts for a regression introduced to MyPy in v0.900
-COMPONENT_RESPONSE_TYPES: typing.Final[typing.AbstractSet[ComponentResponseTypesT]] = frozenset(  # type: ignore[assignment]
+COMPONENT_RESPONSE_TYPES: typing.Final[typing.AbstractSet[ComponentResponseTypesT]] = frozenset(
     [*_DEFERRED_TYPES, *_IMMEDIATE_TYPES]
 )
 """Set of the response types which are valid for a component interaction.
@@ -108,7 +109,7 @@ class ComponentInteraction(base_interactions.MessageResponseMixin[ComponentRespo
     This will be `builtins.None` for component interactions triggered in DMs.
     """
 
-    guild_locale: typing.Optional[str] = attr.field(eq=False, hash=False, repr=True)
+    guild_locale: typing.Optional[typing.Union[str, locales.Locale]] = attr.field(eq=False, hash=False, repr=True)
     """The preferred language of the guild this component interaction was triggered in.
 
     This will be `builtins.None` for component interactions triggered in DMs.
@@ -134,8 +135,11 @@ class ComponentInteraction(base_interactions.MessageResponseMixin[ComponentRespo
     user: users.User = attr.field(eq=False, hash=False, repr=True)
     """The user who triggered this interaction."""
 
-    locale: str = attr.field(eq=False, hash=False, repr=True)
+    locale: typing.Union[str, locales.Locale] = attr.field(eq=False, hash=False, repr=True)
     """The selected language of the user who triggered this component interaction."""
+
+    app_permissions: typing.Optional[permissions.Permissions] = attr.field(eq=False, hash=False, repr=False)
+    """Permissions the bot has in this interaction's channel if it's in a guild."""
 
     def build_response(self, type_: _ImmediateTypesT, /) -> special_endpoints.InteractionMessageBuilder:
         """Get a message response builder for use in the REST server flow.

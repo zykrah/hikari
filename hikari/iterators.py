@@ -28,7 +28,7 @@ wish to extend this API further!
 """
 from __future__ import annotations
 
-__all__: typing.List[str] = [
+__all__: typing.Sequence[str] = (
     "LazyIterator",
     "FlatLazyIterator",
     "All",
@@ -36,7 +36,7 @@ __all__: typing.List[str] = [
     "BufferedLazyIterator",
     "ValueT",
     "AnotherValueT",
-]
+)
 
 import abc
 import asyncio
@@ -115,7 +115,7 @@ class All(typing.Generic[ValueT]):
     def __invert__(self) -> typing.Callable[[ValueT], bool]:
         return lambda item: not self(item)
 
-    def __or__(self, other: All[ValueT]) -> All[ValueT]:
+    def __or__(self, other: typing.Any) -> All[ValueT]:
         if not isinstance(other, All):
             raise TypeError(f"unsupported operand type(s) for |: {type(self).__name__!r} and {type(other).__name__!r}")
 

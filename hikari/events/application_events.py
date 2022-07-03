@@ -1,4 +1,5 @@
-#!/bin/sh -e
+# -*- coding: utf-8 -*-
+# cython: language_level=3
 # Copyright (c) 2020 Nekokatt
 # Copyright (c) 2021-present davfsa
 #
@@ -19,25 +20,34 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+"""Events fired for application related changes."""
+from __future__ import annotations
 
-# Script to set the PYTHONPATH variable up to point to the root of this repository.
+__all__: typing.Sequence[str] = ("ApplicationCommandPermissionsUpdateEvent",)
 
-if [ -z "${1}" ]; then
-    echo "Please pass a bot token as the first parameter to this script!"
-    exit 1
-fi
+import typing
 
-SCRIPT=$(readlink -f "${0}")
-SCRIPT_PATH=$(dirname "${SCRIPT}")
+import attr
 
-# PYTHONPATH might not be set
-if [ $PYTHONPATH ]; then
-    PYTHONPATH="${PYTHONPATH}:${SCRIPT_PATH}/../.."
-else
-    PYTHONPATH="${SCRIPT_PATH}/../.."
-fi
+from hikari.events import shard_events
+from hikari.internal import attr_extensions
 
-export PYTHONPATH
-export BOT_TOKEN="${1}"
+if typing.TYPE_CHECKING:
+    from hikari import commands
+    from hikari import traits
+    from hikari.api import shard as gateway_shard
 
-python3 "${SCRIPT_PATH}/$(basename "${SCRIPT_PATH}").py"
+
+@attr_extensions.with_copy
+@attr.define(kw_only=True, weakref_slot=False)
+class ApplicationCommandPermissionsUpdateEvent(shard_events.ShardEvent):
+    """Event fired when permissions for an application command are updated."""
+
+    app: traits.RESTAware = attr.field(metadata={attr_extensions.SKIP_DEEP_COPY: True})
+    # <<inherited docstring from Event>>.
+
+    shard: gateway_shard.GatewayShard = attr.field(metadata={attr_extensions.SKIP_DEEP_COPY: True})
+    # <<inherited docstring from ShardEvent>>.
+
+    permissions: commands.GuildCommandPermissions = attr.field(repr=False)
+    """The updated application command permissions."""

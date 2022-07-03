@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+from hikari.events.application_events import *
 from hikari.events.base_events import Event
 from hikari.events.base_events import ExceptionEvent
 from hikari.events.channel_events import *
@@ -34,6 +35,7 @@ from hikari.events.member_events import *
 from hikari.events.message_events import *
 from hikari.events.reaction_events import *
 from hikari.events.role_events import *
+from hikari.events.scheduled_events import *
 from hikari.events.shard_events import *
 from hikari.events.typing_events import *
 from hikari.events.user_events import *

@@ -23,13 +23,13 @@
 """Utility for extending and optimising the usage of `attr` models."""
 from __future__ import annotations
 
-__all__: typing.List[str] = [
+__all__: typing.Sequence[str] = (
     "with_copy",
     "copy_attrs",
     "deep_copy_attrs",
     "invalidate_deep_copy_cache",
     "invalidate_shallow_copy_cache",
-]
+)
 
 import copy as std_copy
 import logging
@@ -60,7 +60,7 @@ def invalidate_deep_copy_cache() -> None:
 
 
 def get_fields_definition(
-    cls: typing.Type[ModelT],
+    cls: type,
 ) -> typing.Tuple[
     typing.Sequence[typing.Tuple[attr.Attribute[typing.Any], str]], typing.Sequence[attr.Attribute[typing.Any]]
 ]:
@@ -76,8 +76,8 @@ def get_fields_definition(
     typing.Sequence[typing.Tuple[builtins.str, builtins.str]]
         A sequence of tuples of string attribute names to string key-word names.
     """
-    init_results = []
-    non_init_results = []
+    init_results: typing.List[typing.Tuple[attr.Attribute[typing.Any], str]] = []
+    non_init_results: typing.List[attr.Attribute[typing.Any]] = []
 
     for field in attr.fields(cls):
         if field.init:

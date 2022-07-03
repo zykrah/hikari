@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-__all__: typing.List[str] = [
+__all__: typing.Sequence[str] = (
     "AuditLog",
     "AuditLogChange",
     "AuditLogChangeKey",
@@ -38,7 +38,7 @@ __all__: typing.List[str] = [
     "MessageBulkDeleteEntryInfo",
     "MessageDeleteEntryInfo",
     "MessagePinEntryInfo",
-]
+)
 
 import abc
 import typing
@@ -101,6 +101,7 @@ class AuditLogChangeKey(str, enums.Enum):
     PERMISSIONS = "permissions"
     USER_LIMIT = "user_limit"
     COLOR = "color"
+    COMMAND_ID = "command_id"
     HOIST = "hoist"
     MENTIONABLE = "mentionable"
     ALLOW = "allow"
@@ -194,6 +195,10 @@ class AuditLogEventType(int, enums.Enum):
     STICKER_CREATE = 90
     STICKER_UPDATE = 91
     STICKER_DELETE = 92
+    GUILD_SCHEDULED_EVENT_CREATE = 100
+    GUILD_SCHEDULED_EVENT_UPDATE = 101
+    GUILD_SCHEDULED_EVENT_DELETE = 102
+    APPLICATION_COMMAND_PERMISSION_UPDATE = 121
 
 
 @attr.define(hash=False, kw_only=True, weakref_slot=False)
@@ -487,7 +492,7 @@ class AuditLogEntry(snowflakes.Unique):
 @attr_extensions.with_copy
 @attr.define(hash=False, kw_only=True, repr=False, weakref_slot=False)
 class AuditLog(typing.Sequence[AuditLogEntry]):
-    """Represents a guilds audit log."""
+    """Represents a guilds audit log's page."""
 
     entries: typing.Mapping[snowflakes.Snowflake, AuditLogEntry] = attr.field(repr=False)
     """A mapping of snowflake IDs to the audit log's entries."""

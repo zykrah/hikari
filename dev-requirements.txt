@@ -6,13 +6,13 @@
 mock==4.0.3
 
 # Py.test stuff.
-pytest==6.2.5
-pytest-asyncio==0.17.2
+pytest==7.1.2
+pytest-asyncio==0.18.3
 pytest-cov==3.0.0
-pytest-randomly==3.11.0
+pytest-randomly==3.12.0
 
 # Coverage testing.
-coverage[toml]==6.3
+coverage[toml]==6.4.1
 
 # Other stuff
 async-timeout==4.0.2  # Used for timeouts in some test cases.
@@ -22,27 +22,33 @@ async-timeout==4.0.2  # Used for timeouts in some test cases.
 #################
 
 pdoc3==0.10.0
-sphobjinv==2.1
+sphobjinv==2.2.2
 
 #################
 # TYPE CHECKING #
 #################
 
-mypy==0.931
-pyright==0.0.13
+mypy==0.961
+pyright==1.1.256
 
 #######################
 # DEPENDENCY CHECKING #
 #######################
 
-safety~=1.10.3
+safety~=2.0.0
 
-#############
+##############
 # FORMATTING #
-#############
+##############
 
-black==21.12b0
+black==22.6.0
 isort==5.10.1
+
+###########
+# Linting #
+###########
+
+slotscheck==0.14.1
 
 ##################
 # SPELL CHECKING #
